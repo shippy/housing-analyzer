@@ -12,7 +12,8 @@ def _():
     import numpy as np
     import plotly.graph_objects as go
     from plotly.subplots import make_subplots
-    return go, make_subplots, mo, np
+    from settings import defaults
+    return defaults, go, make_subplots, mo, np
 
 
 @app.cell
@@ -44,78 +45,84 @@ def _(mo):
 
 
 @app.cell
-def _(mo):
-    # Property inputs
+def _(defaults, mo):
+    # Property inputs - defaults loaded from .env via settings.py
     property_price = mo.ui.slider(
         start=10_000_000,
         stop=50_000_000,
         step=1_000_000,
-        value=25_000_000,
+        value=defaults.property_price,
         label="Property Price (CZK)",
         show_value=True,
     )
-    
+
     down_payment = mo.ui.slider(
         start=1_000_000,
         stop=25_000_000,
         step=500_000,
-        value=5_000_000,
+        value=defaults.down_payment,
         label="Down Payment (CZK)",
         show_value=True,
     )
-    
+
     usd_holdings = mo.ui.slider(
         start=0,
         stop=500_000,
         step=10_000,
-        value=200_000,
+        value=defaults.usd_holdings,
         label="USD Holdings to Liquidate ($)",
         show_value=True,
     )
-    
+
     monthly_rent = mo.ui.slider(
         start=15_000,
         stop=150_000,
         step=5_000,
-        value=30_000,
+        value=defaults.monthly_rent,
         label="Monthly Rent (smaller place) (CZK)",
         show_value=True,
     )
-    
+
     years = mo.ui.slider(
         start=5,
         stop=30,
         step=1,
-        value=10,
+        value=defaults.years,
         label="Time Horizon (years)",
         show_value=True,
     )
-    
+
     rent_inflation = mo.ui.slider(
         start=0.01,
         stop=0.10,
         step=0.01,
-        value=0.05,
+        value=defaults.rent_inflation,
         label="Annual Rent Inflation",
         show_value=True,
     )
     
-    # District selector
+    # District selector - map internal values to display names
+    _district_options = {
+        "Prague Average": "prague_avg",
+        "Prague 1 (Center)": "prague_1",
+        "Prague 2 (Vinohrady)": "prague_2",
+        "Prague 3 (Žižkov)": "prague_3",
+        "Prague 4 (Nusle/Podolí)": "prague_4",
+        "Prague 5 (Smíchov)": "prague_5",
+        "Prague 6 (Dejvice)": "prague_6",
+        "Prague 7 (Holešovice)": "prague_7",
+        "Prague 8 (Karlín)": "prague_8",
+        "Prague 9 (Vysočany)": "prague_9",
+        "Prague 10 (Vršovice)": "prague_10",
+    }
+    # Find display name matching the default internal value
+    _default_district_display = next(
+        (k for k, v in _district_options.items() if v == defaults.district),
+        "Prague Average"
+    )
     district = mo.ui.dropdown(
-        options={
-            "Prague Average": "prague_avg",
-            "Prague 1 (Center)": "prague_1",
-            "Prague 2 (Vinohrady)": "prague_2",
-            "Prague 3 (Žižkov)": "prague_3",
-            "Prague 4 (Nusle/Podolí)": "prague_4",
-            "Prague 5 (Smíchov)": "prague_5",
-            "Prague 6 (Dejvice)": "prague_6",
-            "Prague 7 (Holešovice)": "prague_7",
-            "Prague 8 (Karlín)": "prague_8",
-            "Prague 9 (Vysočany)": "prague_9",
-            "Prague 10 (Vršovice)": "prague_10",
-        },
-        value="Prague Average",
+        options=_district_options,
+        value=_default_district_display,
         label="District",
     )
     

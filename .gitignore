@@ -21,3 +21,6 @@ uv.lock
 
 # Marimo
 .marimo/
+
+# Environment variables (contains personal financial data)
+.env
