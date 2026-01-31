@@ -124,6 +124,55 @@ def calculate_interest_paid_year(principal: float, annual_rate: float,
 _model_cache: dict[str, Any] = {}
 
 
+# Correlation matrix for risk factors (estimated from historical data)
+# Order: [property_appreciation, stock_returns, fx_changes, inflation]
+# These correlations reflect typical relationships:
+# - Property and stocks: moderate positive (both risk assets)
+# - Property and inflation: positive (real assets hedge inflation)
+# - Stocks and FX (USD/CZK): negative (risk-off strengthens USD)
+# - Inflation and interest rates: positive (central bank response)
+RISK_FACTOR_CORRELATION = np.array([
+    [1.00,  0.30,  0.10,  0.40],  # Property appreciation
+    [0.30,  1.00, -0.20,  0.15],  # Stock returns
+    [0.10, -0.20,  1.00,  0.25],  # FX changes (USD/CZK)
+    [0.40,  0.15,  0.25,  1.00],  # Inflation
+])
+
+
+def generate_correlated_shocks(
+    n_samples: int,
+    n_years: int,
+    correlation_matrix: NDArray[np.float64] = RISK_FACTOR_CORRELATION,
+) -> NDArray[np.float64]:
+    """Generate correlated standard normal shocks using Cholesky decomposition.
+
+    Args:
+        n_samples: Number of Monte Carlo samples.
+        n_years: Number of years to simulate.
+        correlation_matrix: Correlation matrix for risk factors.
+
+    Returns:
+        Array of shape (n_factors, n_samples, n_years) with correlated shocks.
+    """
+    n_factors = correlation_matrix.shape[0]
+
+    # Cholesky decomposition: Σ = L @ L.T
+    # To generate correlated samples: X = L @ Z where Z ~ N(0, I)
+    L = np.linalg.cholesky(correlation_matrix)
+
+    # Generate independent standard normal shocks
+    Z = np.random.standard_normal((n_factors, n_samples, n_years))
+
+    # Apply Cholesky to introduce correlation
+    # For each (sample, year), multiply the factor vector by L
+    correlated = np.zeros_like(Z)
+    for s in range(n_samples):
+        for y in range(n_years):
+            correlated[:, s, y] = L @ Z[:, s, y]
+
+    return correlated
+
+
 def get_fitted_models(
     use_cache: bool = True,
     draws: int = 1000,
@@ -186,24 +235,41 @@ def sample_stock_returns(
     years: int,
     mean: float = 0.07,
     std: float = 0.18,
+    correlated_shocks: NDArray[np.float64] | None = None,
 ) -> NDArray[np.float64]:
-    """Sample stock market returns with parameter uncertainty."""
+    """Sample stock market returns with parameter uncertainty.
+
+    Args:
+        n_samples: Number of Monte Carlo samples.
+        years: Number of years to simulate.
+        mean: Expected annual return.
+        std: Annual return volatility.
+        correlated_shocks: Optional pre-generated correlated shocks (n_samples, years).
+                          If provided, these are used instead of independent sampling.
+
+    Returns:
+        Cumulative return factors of shape (n_samples, years).
+    """
     with pm.Model():
         mu = pm.Normal("mu", mu=mean, sigma=0.02)
         sigma = pm.HalfNormal("sigma", sigma=std)
         trace = pm.sample(draws=500, tune=200, cores=1, progressbar=False)
-    
+
     mu_samples = trace.posterior["mu"].values.flatten()
     sigma_samples = trace.posterior["sigma"].values.flatten()
-    
+
     idx = np.random.choice(len(mu_samples), size=n_samples)
     mus = mu_samples[idx]
     sigmas = sigma_samples[idx]
-    
+
     annual_returns = np.zeros((n_samples, years))
     for t in range(years):
-        annual_returns[:, t] = np.random.normal(mus, sigmas)
-    
+        if correlated_shocks is not None:
+            # Use correlated shocks: transform from standard normal to actual returns
+            annual_returns[:, t] = mus + sigmas * correlated_shocks[:, t]
+        else:
+            annual_returns[:, t] = np.random.normal(mus, sigmas)
+
     return np.cumprod(1 + annual_returns, axis=1)
 
 
@@ -278,7 +344,15 @@ def run_simulation(
               f"{1-fx_weak_dollar_prob:.0%} stable (drift={fx_stable_drift:.1%})")
     if district != "prague_avg":
         print(f"  District: {district} (multiplier: {district_mult:.2f})")
-    
+
+    # Generate correlated shocks for risk factors
+    # Order: [property_appreciation, stock_returns, fx_changes, inflation]
+    correlated_shocks = generate_correlated_shocks(n_samples, years)
+    property_shocks = correlated_shocks[0]  # (n_samples, years)
+    stock_shocks = correlated_shocks[1]     # (n_samples, years)
+    # fx_shocks = correlated_shocks[2]      # Not used directly (model has own dynamics)
+    inflation_shocks = correlated_shocks[3] # (n_samples, years)
+
     # Base appreciation adjusted by district
     # Scale the returns (not the factors) by district multiplier
     # If base grew 50% (factor 1.50) and district_mult is 1.05,
@@ -286,15 +360,27 @@ def run_simulation(
     base_appreciation = appreciation_model.sample_paths(years, n_samples)
     base_returns = base_appreciation - 1  # Convert factors to cumulative returns
     property_appreciation = 1 + base_returns * district_mult  # Scale returns, convert back
-    
+
+    # Apply property shocks to adjust appreciation correlation with other factors
+    # This post-hoc adjustment preserves the Bayesian parameter uncertainty
+    # while introducing correlation with stocks/inflation
+    appr_mu = np.mean(base_returns, axis=1, keepdims=True)
+    appr_std = np.std(base_returns, axis=1, keepdims=True) + 1e-8
+    standardized_returns = (base_returns - appr_mu) / appr_std
+    # Blend original with correlated shocks (50% blend to preserve Bayesian uncertainty)
+    blended_returns = 0.5 * standardized_returns + 0.5 * property_shocks
+    property_appreciation = 1 + (appr_mu + appr_std * blended_returns) * district_mult
+
     fx_rates = currency_model.sample_paths_annual(years, n_samples)
     mortgage_rates = mortgage_model.sample_paths_annual(years, n_samples)
-    stock_cumulative = sample_stock_returns(n_samples, years)
-    
-    # Sample inflation paths
-    inflation_annual = np.random.normal(
-        config.inflation_mean, config.inflation_std, size=(n_samples, years)
+
+    # Use correlated shocks for stock returns
+    stock_cumulative = sample_stock_returns(
+        n_samples, years, correlated_shocks=stock_shocks
     )
+
+    # Sample inflation paths using correlated shocks
+    inflation_annual = config.inflation_mean + config.inflation_std * inflation_shocks
     inflation_cumulative = np.cumprod(1 + inflation_annual, axis=1)
     
     # ============================================================
