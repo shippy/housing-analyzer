@@ -22,6 +22,7 @@ class ScenarioConfig:
 
     # Time horizon
     years: int = 10
+    renovation_cost: float = 0  # CZK - additional upfront cost for older properties
     rent_growth_rate: float = 0.03
 
     # FX mixture model parameters
@@ -75,6 +76,7 @@ class ScenarioConfig:
             "property_price": self.property_price,
             "down_payment": self.down_payment,
             "monthly_rent": self.monthly_rent,
+            "renovation_cost": self.renovation_cost,
             "usd_holdings": self.usd_holdings,
             "years": self.years,
             "rent_growth_rate": self.rent_growth_rate,
@@ -126,12 +128,18 @@ class ScenarioConfig:
             f"Mode: {mode}",
             f"Property price: {self.property_price:,.0f} CZK",
             f"Down payment: {self.down_payment:,.0f} CZK",
+        ]
+        if self.renovation_cost > 0:
+            lines.append(f"Renovation cost: {self.renovation_cost:,.0f} CZK")
+            total_upfront = self.down_payment + self.renovation_cost
+            lines.append(f"Total upfront: {total_upfront:,.0f} CZK (excl. closing costs)")
+        lines.extend([
             f"Monthly rent (your housing): {self.monthly_rent:,.0f} CZK",
             f"USD holdings: ${self.usd_holdings:,.0f}",
             f"Time horizon: {self.years} years",
             f"Rent growth: {self.rent_growth_rate:.1%}/year",
             f"District: {self.district}",
-        ]
+        ])
 
         if self.buy_to_let:
             property_monthly_rent = self.property_price * self.rental_yield / 12

@@ -43,6 +43,12 @@ def add_common_args(parser: argparse.ArgumentParser) -> None:
         help="Monthly rent in CZK (default: from .env)",
     )
     parser.add_argument(
+        "--renovation-cost",
+        type=float,
+        default=0,
+        help="Renovation cost in CZK - additional upfront cost (default: 0)",
+    )
+    parser.add_argument(
         "--usd-holdings",
         type=float,
         help="USD holdings to invest (default: from .env)",
@@ -159,6 +165,8 @@ def build_config_from_args(args: argparse.Namespace) -> ScenarioConfig:
         config.down_payment = args.down_payment
     if args.monthly_rent is not None:
         config.monthly_rent = args.monthly_rent
+    if args.renovation_cost:
+        config.renovation_cost = args.renovation_cost
     if args.usd_holdings is not None:
         config.usd_holdings = args.usd_holdings
     if args.years is not None:

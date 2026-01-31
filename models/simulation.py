@@ -291,6 +291,7 @@ def run_simulation(
     usd_holdings: float,
     monthly_rent: float,
     years: int,
+    renovation_cost: float = 0,
     n_samples: int = 5000,
     seed: int | None = None,
     rent_growth_rate: float = 0.03,
@@ -441,7 +442,7 @@ def run_simulation(
     
     loan_amount = property_price - down_payment
     buying_costs = property_price * config.buying_costs_rate
-    total_initial_buy = down_payment + buying_costs
+    total_initial_buy = down_payment + buying_costs + renovation_cost
     
     initial_usd_in_czk = usd_holdings * currency_model.current_rate
     remaining_cash_buy = np.maximum(0, initial_usd_in_czk - total_initial_buy)
