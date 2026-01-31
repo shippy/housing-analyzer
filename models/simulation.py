@@ -3,7 +3,7 @@
 import numpy as np
 import pymc as pm
 from numpy.typing import NDArray
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from .appreciation import AppreciationModel, fit_from_hpi_data
@@ -22,50 +22,54 @@ DISTRICT_MULTIPLIERS = {
     "prague_5": 1.00,   # Smíchov - average
     "prague_6": 0.98,   # Dejvice - established
     "prague_7": 1.06,   # Holešovice - trendy
-    "prague_8": 1.04,   # Karlín - redeveloped  
+    "prague_8": 1.04,   # Karlín - redeveloped
     "prague_9": 1.10,   # Vysočany - catching up
     "prague_10": 1.03,  # Vršovice - popular
 }
 
 
 @dataclass
-class SimulationConfig:
-    """Configuration for the simulation."""
-    
+class _InternalSimConfig:
+    """Internal configuration for simulation calculations.
+
+    Note: For external use, import ScenarioConfig from core.config instead.
+    This internal class holds fixed model parameters not exposed to CLI/UI.
+    """
+
     # Property parameters
     property_price: float  # CZK
     down_payment: float  # CZK
     monthly_rent: float  # CZK
-    
+
     # Investment parameters
     usd_holdings: float  # USD
     stock_return_mean: float = 0.07  # Expected annual stock return
     stock_return_std: float = 0.18  # Stock return volatility
-    
+
     # Mortgage parameters
     mortgage_term_years: int = 30
     initial_mortgage_rate: float = 0.055
     refinance_interval_years: int = 5  # Check refinancing every N years
     refinance_cost_pct: float = 0.005  # 0.5% of remaining balance
-    
+
     # Rent parameters
     rent_growth_rate: float = 0.03
-    
+
     # Property costs (as fraction of property value)
     property_tax_rate: float = 0.001
     maintenance_rate: float = 0.01
     insurance_rate: float = 0.002
-    
+
     # Transaction costs
     buying_costs_rate: float = 0.04
     selling_costs_rate: float = 0.03
-    
+
     # Tax benefits (Czech specific)
     mortgage_interest_deduction_limit: float = 300_000  # CZK/year max
     income_tax_rate: float = 0.15  # 15% income tax
     capital_gains_exempt_years: int = 5  # Years of residence for exemption
     capital_gains_tax_rate: float = 0.15  # If not exempt
-    
+
     # Inflation (AR(1) process with persistence)
     inflation_mean: float = 0.025  # 2.5% annual long-run mean
     inflation_std: float = 0.015   # Innovation standard deviation
@@ -318,14 +322,14 @@ def run_simulation(
     if seed is not None:
         np.random.seed(seed)
     
-    config = SimulationConfig(
+    config = _InternalSimConfig(
         property_price=property_price,
         down_payment=down_payment,
         monthly_rent=monthly_rent,
         usd_holdings=usd_holdings,
         district=district,
+        rent_growth_rate=rent_growth_rate,
     )
-    config.rent_growth_rate = rent_growth_rate
     
     # Get district multiplier
     district_mult = DISTRICT_MULTIPLIERS.get(district, 1.0)
@@ -700,26 +704,9 @@ def run_simulation(
 
 
 def print_summary(results: dict[str, Any]) -> None:
-    """Print a human-readable summary."""
-    stats = results["summary_stats"]
-    downside = results.get("downside_metrics", {})
-    
-    print("=" * 60)
-    print("BUY vs RENT+INVEST Monte Carlo Simulation")
-    print("=" * 60)
-    
-    print(f"\n--- Results (inflation-adjusted) ---")
-    print(f"Probability that BUYING wins: {stats['buy_wins_prob']:.1%}")
-    print(f"Expected advantage of buying: {stats['expected_advantage_buy']:,.0f} CZK")
-    
-    print("\n--- Final Wealth Distribution (real CZK) ---")
-    print(f"Buy median: {stats['buy_real']['p50']:,.0f}")
-    print(f"Rent median: {stats['rent_real']['p50']:,.0f}")
-    
-    if downside:
-        print("\n--- Downside Risk ---")
-        print(f"P(underwater on mortgage): {downside['p_underwater_final']:.1%}")
-        print(f"P(buy wealth < initial): {downside['p_buy_loss_real']:.1%}")
-        print(f"P(rent wealth < initial): {downside['p_rent_loss_real']:.1%}")
-        print(f"Worst 5% buy outcome: {downside['buy_worst_5pct_real']:,.0f} CZK")
-        print(f"Worst 5% rent outcome: {downside['rent_worst_5pct_real']:,.0f} CZK")
+    """Print a human-readable summary.
+
+    Deprecated: Use core.runner.format_results() instead.
+    """
+    from core.runner import format_results
+    print(format_results(results))

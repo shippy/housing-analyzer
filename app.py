@@ -238,7 +238,7 @@ def _(district, down_payment, enable_correlations, enable_refinancing, enable_ta
     # Only run when button is clicked
     mo.stop(not run_button.value)
 
-    # Import simulation
+    # Import simulation (uses same run_simulation as core.runner)
     try:
         from models.simulation import run_simulation
 
