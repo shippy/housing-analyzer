@@ -425,28 +425,34 @@ def run_simulation(
         ])
         annual_mortgage = monthly_payment * 12
         
-        # Interest paid this year (for tax deduction)
-        if enable_tax_benefits:
-            interest_paid = current_principal * current_rate  # Approximation
-            deductible_interest = np.minimum(interest_paid, config.mortgage_interest_deduction_limit)
-            tax_savings = deductible_interest * config.income_tax_rate
-            cumulative_tax_savings += tax_savings
-        
         # Property costs
         annual_property_costs = (
             config.property_tax_rate + config.maintenance_rate + config.insurance_rate
         ) * property_values[:, y]
-        
+
         # Update mortgage state
+        start_principal = current_principal.copy()  # Balance at start of year
         months_into_mortgage += 12
         remaining_term_months = np.maximum(0, remaining_term_months - 12)
-        
-        # Calculate remaining balance
+
+        # Calculate remaining balance at end of year
         remaining_balance = np.array([
             calculate_remaining_balance(loan_amount, r, config.mortgage_term_years * 12, int(m))
             for r, m in zip(current_rate, months_into_mortgage)
         ])
         current_principal = remaining_balance
+
+        # Interest paid this year (for tax deduction)
+        # Interest = Total payments - Principal reduction
+        # This is more accurate than start_principal * rate which overestimates
+        if enable_tax_benefits:
+            principal_reduction = start_principal - remaining_balance
+            interest_paid = annual_mortgage - principal_reduction
+            # Ensure non-negative (can happen with rounding or paid-off mortgages)
+            interest_paid = np.maximum(0, interest_paid)
+            deductible_interest = np.minimum(interest_paid, config.mortgage_interest_deduction_limit)
+            tax_savings = deductible_interest * config.income_tax_rate
+            cumulative_tax_savings += tax_savings
         remaining_balance_yearly[:, y] = remaining_balance  # Track for underwater calculation
         
         # Refinancing check every N years
