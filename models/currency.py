@@ -15,16 +15,19 @@ from dataclasses import dataclass
 @dataclass
 class FXMixtureConfig:
     """Configuration for FX regime mixture model.
-    
+
     Attributes:
         weak_dollar_prob: Probability of weak dollar regime (0-1).
         weak_dollar_drift: Annual drift in weak regime (e.g., -0.04 = -4%).
         stable_drift: Annual drift in stable/strong regime (e.g., 0.01 = +1%).
+        regime_persistence_years: Expected duration of each regime in years.
+                                  Lower values = more frequent regime switches.
         enabled: Whether to use mixture model (False = standard GBM from data).
     """
     weak_dollar_prob: float = 0.6
     weak_dollar_drift: float = -0.04
     stable_drift: float = 0.01
+    regime_persistence_years: float = 3.0  # Average regime lasts ~3 years
     enabled: bool = False
 
 
@@ -134,34 +137,55 @@ class CurrencyModel:
         # Sample volatility from posterior
         idx = np.random.choice(len(self.sigma_samples), size=n_samples)
         sigmas = self.sigma_samples[idx]
-        
-        # Determine drift based on mixture config
-        if self.mixture_config.enabled:
-            # Mixture model: each path is assigned to a regime
-            regime_weak = np.random.binomial(
-                1, self.mixture_config.weak_dollar_prob, n_samples
-            ).astype(bool)
-            mus = np.where(
-                regime_weak,
-                self.mixture_config.weak_dollar_drift,
-                self.mixture_config.stable_drift,
-            )
-        else:
-            # Standard: sample drift from posterior
-            mus = self.mu_samples[idx]
-        
+
         # GBM simulation
         # S(t+dt) = S(t) * exp((μ - σ²/2)dt + σ√dt * Z)
         rates = np.zeros((n_samples, n_steps + 1))
         rates[:, 0] = self.current_rate
-        
+
         sqrt_dt = np.sqrt(dt)
-        for t in range(n_steps):
-            Z = np.random.normal(0, 1, n_samples)
-            drift = (mus - 0.5 * sigmas**2) * dt
-            diffusion = sigmas * sqrt_dt * Z
-            rates[:, t + 1] = rates[:, t] * np.exp(drift + diffusion)
-        
+
+        if self.mixture_config.enabled:
+            # Regime-switching mixture model
+            # Calculate switching probability per step from persistence parameter
+            # If regime lasts ~P years on average, switch prob per step = dt/P
+            switch_prob = dt / self.mixture_config.regime_persistence_years
+
+            # Initialize regimes based on stationary distribution
+            in_weak_regime = np.random.binomial(
+                1, self.mixture_config.weak_dollar_prob, n_samples
+            ).astype(bool)
+
+            for t in range(n_steps):
+                # Determine drift based on current regime
+                mus = np.where(
+                    in_weak_regime,
+                    self.mixture_config.weak_dollar_drift,
+                    self.mixture_config.stable_drift,
+                )
+
+                Z = np.random.normal(0, 1, n_samples)
+                drift = (mus - 0.5 * sigmas**2) * dt
+                diffusion = sigmas * sqrt_dt * Z
+                rates[:, t + 1] = rates[:, t] * np.exp(drift + diffusion)
+
+                # Regime switching: with prob switch_prob, consider switching
+                switches = np.random.binomial(1, switch_prob, n_samples).astype(bool)
+                # When switching occurs, new regime drawn from stationary distribution
+                new_regime_weak = np.random.binomial(
+                    1, self.mixture_config.weak_dollar_prob, n_samples
+                ).astype(bool)
+                in_weak_regime = np.where(switches, new_regime_weak, in_weak_regime)
+        else:
+            # Standard GBM: constant drift from posterior
+            mus = self.mu_samples[idx]
+
+            for t in range(n_steps):
+                Z = np.random.normal(0, 1, n_samples)
+                drift = (mus - 0.5 * sigmas**2) * dt
+                diffusion = sigmas * sqrt_dt * Z
+                rates[:, t + 1] = rates[:, t] * np.exp(drift + diffusion)
+
         return rates[:, 1:]
     
     def sample_paths_annual(self, years: int, n_samples: int) -> NDArray[np.float64]:
