@@ -125,18 +125,25 @@ def calculate_interest_paid_year(principal: float, annual_rate: float,
 _model_cache: dict[str, Any] = {}
 
 
-# Correlation matrix for risk factors (estimated from historical data)
+# Correlation matrix for risk factors
 # Order: [property_appreciation, stock_returns, fx_changes, inflation]
-# These correlations reflect typical relationships:
-# - Property and stocks: moderate positive (both risk assets)
-# - Property and inflation: positive (real assets hedge inflation)
-# - Stocks and FX (USD/CZK): negative (risk-off strengthens USD)
-# - Inflation and interest rates: positive (central bank response)
+#
+# Key relationships modeled:
+# - Property/inflation: +0.50 (real assets hedge inflation well)
+# - Stocks/inflation: -0.25 (unexpected inflation hurts stock valuations)
+# - Stocks/FX: +0.30 (in USD crisis, both stocks and dollar fall together;
+#                     this captures stagflation/weak-dollar scenarios that
+#                     hurt USD-denominated portfolios)
+# - Property/FX: -0.15 (CZK assets benefit when USD weakens)
+#
+# Note: "FX" here is USD/CZK, so positive FX = stronger dollar.
+# A weak dollar (negative FX shock) combined with weak stocks (negative stock shock)
+# requires POSITIVE correlation to occur together.
 RISK_FACTOR_CORRELATION = np.array([
-    [1.00,  0.30,  0.10,  0.40],  # Property appreciation
-    [0.30,  1.00, -0.20,  0.15],  # Stock returns
-    [0.10, -0.20,  1.00,  0.25],  # FX changes (USD/CZK)
-    [0.40,  0.15,  0.25,  1.00],  # Inflation
+    [1.00,  0.25, -0.15,  0.50],  # Property appreciation
+    [0.25,  1.00,  0.30, -0.25],  # Stock returns
+    [-0.15, 0.30,  1.00,  0.10],  # FX changes (USD/CZK)
+    [0.50, -0.25,  0.10,  1.00],  # Inflation
 ])
 
 
