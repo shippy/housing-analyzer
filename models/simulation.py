@@ -280,8 +280,12 @@ def run_simulation(
         print(f"  District: {district} (multiplier: {district_mult:.2f})")
     
     # Base appreciation adjusted by district
+    # Scale the returns (not the factors) by district multiplier
+    # If base grew 50% (factor 1.50) and district_mult is 1.05,
+    # we want 52.5% growth (factor 1.525), not 1.50^1.05
     base_appreciation = appreciation_model.sample_paths(years, n_samples)
-    property_appreciation = base_appreciation ** district_mult  # Compound effect
+    base_returns = base_appreciation - 1  # Convert factors to cumulative returns
+    property_appreciation = 1 + base_returns * district_mult  # Scale returns, convert back
     
     fx_rates = currency_model.sample_paths_annual(years, n_samples)
     mortgage_rates = mortgage_model.sample_paths_annual(years, n_samples)
