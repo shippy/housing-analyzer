@@ -566,7 +566,7 @@ def run_simulation(
     rent_comp_months_paid = np.zeros(n_samples)
 
     for y in range(years):
-        # Rent for this year
+        # Rent for this year (same for renter and buy-to-let buyer's own housing)
         rent_this_year = monthly_rent * 12 * (1 + config.rent_growth_rate) ** y
 
         # What would buyer pay THIS year (using same rate dynamics as buy scenario)
@@ -581,7 +581,11 @@ def run_simulation(
             config.property_tax_rate + config.maintenance_rate + config.insurance_rate
         ) * property_values[:, y]
 
-        # Renter saves the difference (can be negative if rent > buyer's costs)
+        # Renter saves the difference between owner-occupied buyer's costs and rent
+        # This comparison is consistent regardless of buy_to_let mode because:
+        # - In owner-occupied: btl_net advantage is zero (no rental income, no own rent)
+        # - In buy-to-let: btl_net advantage is captured in the BUY scenario's invested_cash
+        # Using owner-occupied as baseline avoids double-counting the btl_net advantage
         annual_savings = buyer_annual_mortgage + buyer_property_costs - rent_this_year
 
         # Compound existing savings using stock returns (correlated with other factors)
