@@ -108,20 +108,26 @@ class AppreciationModel:
 
 def fit_from_hpi_data(hpi_series: NDArray[np.float64]) -> AppreciationModel:
     """Convenience function to fit model from HPI index series.
-    
+
     Args:
-        hpi_series: Time series of house price index values.
-        
+        hpi_series: Time series of house price index values (assumed quarterly).
+
     Returns:
         Fitted AppreciationModel.
     """
-    # Calculate annual returns (assuming quarterly data, take every 4th)
-    # Or calculate YoY returns
     if len(hpi_series) < 8:
         # Not enough data, use priors only
         return AppreciationModel(historical_returns=None)
-    
-    # Calculate year-over-year returns
-    yoy_returns = (hpi_series[4:] / hpi_series[:-4]) - 1
-    
+
+    # Take non-overlapping annual observations to ensure independence
+    # Use every 4th quarterly observation (e.g., Q1 of each year)
+    annual_values = hpi_series[::4]  # Q1, Q5, Q9, ... (indices 0, 4, 8, ...)
+
+    if len(annual_values) < 2:
+        return AppreciationModel(historical_returns=None)
+
+    # Calculate year-over-year returns from non-overlapping annual data
+    # These observations are now independent
+    yoy_returns = (annual_values[1:] / annual_values[:-1]) - 1
+
     return AppreciationModel(historical_returns=yoy_returns)
