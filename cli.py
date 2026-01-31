@@ -121,6 +121,19 @@ def add_common_args(parser: argparse.ArgumentParser) -> None:
         help="Disable risk factor correlations",
     )
 
+    # Buy-to-let mode
+    parser.add_argument(
+        "--buy-to-let",
+        action="store_true",
+        help="Buy property to rent out while living in cheaper rental",
+    )
+    parser.add_argument(
+        "--rental-yield",
+        type=float,
+        default=0.025,
+        help="Annual rental yield on property (default: 0.025 = 2.5%%)",
+    )
+
     # Simulation parameters
     parser.add_argument(
         "--samples",
@@ -184,6 +197,11 @@ def build_config_from_args(args: argparse.Namespace) -> ScenarioConfig:
     if args.fx_stable_drift is not None:
         config.fx_mixture_enabled = True
         config.fx_stable_drift = args.fx_stable_drift
+
+    # Buy-to-let mode
+    if args.buy_to_let:
+        config.buy_to_let = True
+    config.rental_yield = args.rental_yield
 
     # Simulation parameters
     config.n_samples = args.samples

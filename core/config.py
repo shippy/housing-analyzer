@@ -37,6 +37,10 @@ class ScenarioConfig:
     inflation_adjust: bool = True
     enable_correlations: bool = True
 
+    # Buy-to-let mode: buy property, rent it out, live in smaller rental
+    buy_to_let: bool = False
+    rental_yield: float = 0.025  # Annual yield on property when rented out (2.5% default for Prague)
+
     # Simulation parameters
     n_samples: int = 5000
     seed: int | None = None
@@ -88,6 +92,8 @@ class ScenarioConfig:
             "enable_tax_benefits": self.enable_tax_benefits,
             "inflation_adjust": self.inflation_adjust,
             "enable_correlations": self.enable_correlations,
+            "buy_to_let": self.buy_to_let,
+            "rental_yield": self.rental_yield,
         }
 
     def with_fx_bearish(self) -> "ScenarioConfig":
@@ -113,23 +119,38 @@ class ScenarioConfig:
 
     def summary(self) -> str:
         """Return a human-readable summary of the configuration."""
+        mode = "Buy-to-let (landlord)" if self.buy_to_let else "Owner-occupied"
         lines = [
             "Scenario Configuration",
             "=" * 40,
+            f"Mode: {mode}",
             f"Property price: {self.property_price:,.0f} CZK",
             f"Down payment: {self.down_payment:,.0f} CZK",
-            f"Monthly rent: {self.monthly_rent:,.0f} CZK",
+            f"Monthly rent (your housing): {self.monthly_rent:,.0f} CZK",
             f"USD holdings: ${self.usd_holdings:,.0f}",
             f"Time horizon: {self.years} years",
             f"Rent growth: {self.rent_growth_rate:.1%}/year",
             f"District: {self.district}",
+        ]
+
+        if self.buy_to_let:
+            property_monthly_rent = self.property_price * self.rental_yield / 12
+            lines.extend([
+                "",
+                "Buy-to-let Details:",
+                f"  Rental yield: {self.rental_yield:.1%}",
+                f"  Property generates: {property_monthly_rent:,.0f} CZK/month",
+                f"  You pay rent: {self.monthly_rent:,.0f} CZK/month",
+            ])
+
+        lines.extend([
             "",
             "Model Options:",
             f"  Refinancing: {'enabled' if self.enable_refinancing else 'disabled'}",
             f"  Tax benefits: {'enabled' if self.enable_tax_benefits else 'disabled'}",
             f"  Inflation adjust: {'enabled' if self.inflation_adjust else 'disabled'}",
             f"  Correlations: {'enabled' if self.enable_correlations else 'disabled'}",
-        ]
+        ])
 
         if self.fx_mixture_enabled:
             expected_drift = (

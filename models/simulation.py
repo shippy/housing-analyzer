@@ -302,22 +302,26 @@ def run_simulation(
     fx_weak_dollar_prob: float = 0.6,
     fx_weak_dollar_drift: float = -0.04,
     fx_stable_drift: float = 0.01,
-    # New parameters
+    # Model options
     district: str = "prague_avg",
     enable_refinancing: bool = True,
     enable_tax_benefits: bool = True,
     inflation_adjust: bool = True,
     enable_correlations: bool = True,
+    # Buy-to-let mode
+    buy_to_let: bool = False,
+    rental_yield: float = 0.025,
 ) -> dict[str, Any]:
     """Run Monte Carlo simulation with PyMC Bayesian models.
-    
-    New features:
+
+    Features:
     - Yearly wealth tracking for breakeven analysis
     - Mortgage refinancing every 5 years if rates drop
     - Czech tax benefits (interest deduction, capital gains exemption)
     - District-specific appreciation
     - Inflation-adjusted wealth
     - Downside risk metrics
+    - Buy-to-let mode: rent out property while living in cheaper rental
     """
     if seed is not None:
         np.random.seed(seed)
@@ -352,6 +356,10 @@ def run_simulation(
     
     # Sample paths
     print(f"Sampling {n_samples} Monte Carlo paths...")
+    if buy_to_let:
+        property_monthly_income = property_price * rental_yield / 12
+        print(f"  Buy-to-let: property yields {rental_yield:.1%} ({property_monthly_income:,.0f} CZK/mo), "
+              f"you pay {monthly_rent:,.0f} CZK/mo rent")
     if fx_mixture_enabled:
         print(f"  FX mixture: {fx_weak_dollar_prob:.0%} weak (drift={fx_weak_dollar_drift:.1%}), "
               f"{1-fx_weak_dollar_prob:.0%} stable (drift={fx_stable_drift:.1%})")
@@ -456,15 +464,30 @@ def run_simulation(
     for y in range(years):
         # Monthly payment for this year
         monthly_payment = np.array([
-            calculate_monthly_payment(p, r, int(m)) 
+            calculate_monthly_payment(p, r, int(m))
             for p, r, m in zip(current_principal, current_rate, remaining_term_months)
         ])
         annual_mortgage = monthly_payment * 12
-        
+
         # Property costs
         annual_property_costs = (
             config.property_tax_rate + config.maintenance_rate + config.insurance_rate
         ) * property_values[:, y]
+
+        # Buy-to-let cash flow adjustment
+        # In owner-occupied mode: you pay mortgage+costs but save on rent (implicit)
+        # In buy-to-let mode: you pay mortgage+costs+your_rent but receive rental_income
+        # The NET difference vs owner-occupied = rental_income - your_rent
+        # (mortgage and property costs are same in both modes)
+        if buy_to_let:
+            # Rental income from property (yield on current property value)
+            annual_rental_income = rental_yield * property_values[:, y]
+            # Your own rent (grows at rent_growth_rate)
+            own_rent_this_year = monthly_rent * 12 * (1 + config.rent_growth_rate) ** y
+            # Net difference vs owner-occupied: you get rental income but pay your own rent
+            btl_net_vs_owner_occupied = annual_rental_income - own_rent_this_year
+            # Add to invested cash (will grow with stocks)
+            invested_cash += btl_net_vs_owner_occupied
 
         # Update mortgage state
         start_principal = current_principal.copy()  # Balance at start of year
@@ -490,39 +513,39 @@ def run_simulation(
             tax_savings = deductible_interest * config.income_tax_rate
             cumulative_tax_savings += tax_savings
         remaining_balance_yearly[:, y] = remaining_balance  # Track for underwater calculation
-        
+
         # Refinancing check every N years
         if enable_refinancing and (y + 1) % config.refinance_interval_years == 0:
             new_market_rate = mortgage_rates[:, y]
             # Refinance if new rate is at least 0.5% lower
             should_refinance = (new_market_rate < current_rate - 0.005) & (remaining_balance > 0)
-            
+
             # Apply refinancing costs and reset terms
             refinance_cost = remaining_balance * config.refinance_cost_pct * should_refinance
             current_rate = np.where(should_refinance, new_market_rate, current_rate)
             remaining_term_months = np.where(
-                should_refinance, 
+                should_refinance,
                 (config.mortgage_term_years - y - 1) * 12,  # New term
                 remaining_term_months
             )
             invested_cash -= refinance_cost  # Pay from savings
-        
+
         # Invested cash grows
         if y > 0:
             invested_cash *= (stock_cumulative[:, y] / stock_cumulative[:, y-1])
         else:
             invested_cash *= stock_cumulative[:, 0]
-        
+
         # Calculate wealth at year y
         selling_costs = property_values[:, y] * config.selling_costs_rate
-        
+
         # Capital gains tax (if selling before exemption period)
         if enable_tax_benefits and y < config.capital_gains_exempt_years:
             capital_gain = np.maximum(0, property_values[:, y] - property_price - buying_costs)
             capital_gains_tax = capital_gain * config.capital_gains_tax_rate
         else:
             capital_gains_tax = 0
-        
+
         equity = property_values[:, y] - remaining_balance - selling_costs - capital_gains_tax
         buy_wealth_yearly[:, y] = equity + invested_cash + cumulative_tax_savings
     
