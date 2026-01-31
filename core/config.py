@@ -40,7 +40,8 @@ class ScenarioConfig:
 
     # Buy-to-let mode: buy property, rent it out, live in smaller rental
     buy_to_let: bool = False
-    rental_yield: float = 0.025  # Annual yield on property when rented out (2.5% default for Prague)
+    rental_yield: float = 0.025  # Gross annual yield on property (2.5% default for Prague)
+    btl_expense_rate: float = 0.30  # Landlord expenses as fraction of gross rent (vacancy, maintenance, mgmt, tax)
 
     # Simulation parameters
     n_samples: int = 5000
@@ -96,6 +97,7 @@ class ScenarioConfig:
             "enable_correlations": self.enable_correlations,
             "buy_to_let": self.buy_to_let,
             "rental_yield": self.rental_yield,
+            "btl_expense_rate": self.btl_expense_rate,
         }
 
     def with_fx_bearish(self) -> "ScenarioConfig":
@@ -142,12 +144,16 @@ class ScenarioConfig:
         ])
 
         if self.buy_to_let:
-            property_monthly_rent = self.property_price * self.rental_yield / 12
+            gross_monthly = self.property_price * self.rental_yield / 12
+            net_yield = self.rental_yield * (1 - self.btl_expense_rate)
+            net_monthly = gross_monthly * (1 - self.btl_expense_rate)
             lines.extend([
                 "",
                 "Buy-to-let Details:",
-                f"  Rental yield: {self.rental_yield:.1%}",
-                f"  Property generates: {property_monthly_rent:,.0f} CZK/month",
+                f"  Gross rental yield: {self.rental_yield:.1%}",
+                f"  Landlord expenses: {self.btl_expense_rate:.0%} (vacancy, maintenance, mgmt, tax)",
+                f"  Net rental yield: {net_yield:.1%}",
+                f"  Net rental income: {net_monthly:,.0f} CZK/month",
                 f"  You pay rent: {self.monthly_rent:,.0f} CZK/month",
             ])
 

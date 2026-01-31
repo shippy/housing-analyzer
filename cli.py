@@ -137,7 +137,13 @@ def add_common_args(parser: argparse.ArgumentParser) -> None:
         "--rental-yield",
         type=float,
         default=0.025,
-        help="Annual rental yield on property (default: 0.025 = 2.5%%)",
+        help="Gross annual rental yield on property (default: 0.025 = 2.5%%)",
+    )
+    parser.add_argument(
+        "--btl-expense-rate",
+        type=float,
+        default=0.30,
+        help="Landlord expenses as %% of gross rent: vacancy, maintenance, mgmt, tax (default: 0.30 = 30%%)",
     )
 
     # Simulation parameters
@@ -210,6 +216,7 @@ def build_config_from_args(args: argparse.Namespace) -> ScenarioConfig:
     if args.buy_to_let:
         config.buy_to_let = True
     config.rental_yield = args.rental_yield
+    config.btl_expense_rate = args.btl_expense_rate
 
     # Simulation parameters
     config.n_samples = args.samples

@@ -312,6 +312,7 @@ def run_simulation(
     # Buy-to-let mode
     buy_to_let: bool = False,
     rental_yield: float = 0.025,
+    btl_expense_rate: float = 0.30,  # Landlord expenses (vacancy, maintenance, mgmt, tax)
 ) -> dict[str, Any]:
     """Run Monte Carlo simulation with PyMC Bayesian models.
 
@@ -358,9 +359,11 @@ def run_simulation(
     # Sample paths
     print(f"Sampling {n_samples} Monte Carlo paths...")
     if buy_to_let:
-        property_monthly_income = property_price * rental_yield / 12
-        print(f"  Buy-to-let: property yields {rental_yield:.1%} ({property_monthly_income:,.0f} CZK/mo), "
-              f"you pay {monthly_rent:,.0f} CZK/mo rent")
+        gross_monthly = property_price * rental_yield / 12
+        net_yield = rental_yield * (1 - btl_expense_rate)
+        net_monthly = gross_monthly * (1 - btl_expense_rate)
+        print(f"  Buy-to-let: {rental_yield:.1%} gross, {net_yield:.1%} net (after {btl_expense_rate:.0%} expenses)")
+        print(f"    Net income: {net_monthly:,.0f} CZK/mo, you pay: {monthly_rent:,.0f} CZK/mo")
     if fx_mixture_enabled:
         print(f"  FX mixture: {fx_weak_dollar_prob:.0%} weak (drift={fx_weak_dollar_drift:.1%}), "
               f"{1-fx_weak_dollar_prob:.0%} stable (drift={fx_stable_drift:.1%})")
@@ -481,8 +484,9 @@ def run_simulation(
         # The NET difference vs owner-occupied = rental_income - your_rent
         # (mortgage and property costs are same in both modes)
         if buy_to_let:
-            # Rental income from property (yield on current property value)
-            annual_rental_income = rental_yield * property_values[:, y]
+            # Rental income from property (yield on current property value, minus landlord expenses)
+            gross_rental_income = rental_yield * property_values[:, y]
+            annual_rental_income = gross_rental_income * (1 - btl_expense_rate)
             # Your own rent (grows at rent_growth_rate)
             own_rent_this_year = monthly_rent * 12 * (1 + config.rent_growth_rate) ** y
             # Net difference vs owner-occupied: you get rental income but pay your own rent

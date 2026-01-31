@@ -148,7 +148,15 @@ def _(defaults, mo):
         stop=0.05,
         step=0.005,
         value=0.025,
-        label="Annual Rental Yield",
+        label="Gross Rental Yield",
+        show_value=True,
+    )
+    btl_expense_rate = mo.ui.slider(
+        start=0.10,
+        stop=0.50,
+        step=0.05,
+        value=0.30,
+        label="Landlord Expenses (%)",
         show_value=True,
     )
 
@@ -163,9 +171,9 @@ def _(defaults, mo):
         mo.hstack([enable_refinancing, enable_tax_benefits], gap=1),
         mo.hstack([inflation_adjust, enable_correlations], gap=1),
         mo.md("**Buy-to-Let Mode:**"),
-        mo.hstack([buy_to_let, rental_yield], gap=1),
+        mo.hstack([buy_to_let, rental_yield, btl_expense_rate], gap=1),
     ])
-    return buy_to_let, district, down_payment, enable_correlations, enable_refinancing, enable_tax_benefits, inflation_adjust, monthly_rent, property_price, renovation_cost, rent_inflation, rental_yield, usd_holdings, years
+    return btl_expense_rate, buy_to_let, district, down_payment, enable_correlations, enable_refinancing, enable_tax_benefits, inflation_adjust, monthly_rent, property_price, renovation_cost, rent_inflation, rental_yield, usd_holdings, years
 
 
 @app.cell
@@ -256,7 +264,7 @@ def _(mo):
 
 
 @app.cell
-def _(buy_to_let, district, down_payment, enable_correlations, enable_refinancing, enable_tax_benefits, fx_mixture_enabled, fx_stable_drift, fx_weak_dollar_drift, fx_weak_dollar_prob, inflation_adjust, mo, monthly_rent, np, property_price, renovation_cost, rent_inflation, rental_yield, run_button, usd_holdings, years):
+def _(btl_expense_rate, buy_to_let, district, down_payment, enable_correlations, enable_refinancing, enable_tax_benefits, fx_mixture_enabled, fx_stable_drift, fx_weak_dollar_drift, fx_weak_dollar_prob, inflation_adjust, mo, monthly_rent, np, property_price, renovation_cost, rent_inflation, rental_yield, run_button, usd_holdings, years):
     # Only run when button is clicked
     mo.stop(not run_button.value)
 
@@ -287,6 +295,7 @@ def _(buy_to_let, district, down_payment, enable_correlations, enable_refinancin
             # Buy-to-let mode
             buy_to_let=buy_to_let.value,
             rental_yield=rental_yield.value,
+            btl_expense_rate=btl_expense_rate.value,
         )
     except ImportError:
         # Fallback for testing UI before models are ready
@@ -742,7 +751,7 @@ def _(mo):
 
 
 @app.cell
-def _(buy_to_let, down_payment, fx_mixture_enabled, fx_stable_drift, fx_weak_dollar_drift, fx_weak_dollar_prob, mo, monthly_rent, np, property_price, renovation_cost, rent_inflation, rental_yield, sensitivity_button, usd_holdings, years):
+def _(btl_expense_rate, buy_to_let, down_payment, fx_mixture_enabled, fx_stable_drift, fx_weak_dollar_drift, fx_weak_dollar_prob, mo, monthly_rent, np, property_price, renovation_cost, rent_inflation, rental_yield, sensitivity_button, usd_holdings, years):
     """One-at-a-time sensitivity analysis (tornado chart)"""
     mo.stop(not sensitivity_button.value, mo.md("*Click the button above to run sensitivity analysis*"))
 
@@ -762,6 +771,7 @@ def _(buy_to_let, down_payment, fx_mixture_enabled, fx_stable_drift, fx_weak_dol
         "fx_stable_drift": fx_stable_drift.value,
         "buy_to_let": buy_to_let.value,
         "rental_yield": rental_yield.value,
+        "btl_expense_rate": btl_expense_rate.value,
     }
     
     # Run baseline with fewer samples for speed
