@@ -24,8 +24,8 @@ def run_grid_search(
     """
     base_config = ScenarioConfig.from_defaults()
 
-    # Parameter ranges
-    monthly_rents = [20_000, 25_000, 30_000, 35_000, 40_000, 45_000, 50_000]
+    # Parameter ranges (realistic for Prague)
+    monthly_rents = [20_000, 23_000, 26_000, 29_000, 32_000, 35_000]
     years_range = [5, 7, 10, 12, 15, 20]
     fx_scenarios = ["neutral", "bearish"]
 
