@@ -303,6 +303,7 @@ def run_simulation(
     enable_refinancing: bool = True,
     enable_tax_benefits: bool = True,
     inflation_adjust: bool = True,
+    enable_correlations: bool = True,
 ) -> dict[str, Any]:
     """Run Monte Carlo simulation with PyMC Bayesian models.
     
@@ -352,10 +353,16 @@ def run_simulation(
               f"{1-fx_weak_dollar_prob:.0%} stable (drift={fx_stable_drift:.1%})")
     if district != "prague_avg":
         print(f"  District: {district} (multiplier: {district_mult:.2f})")
+    if not enable_correlations:
+        print("  Correlations: DISABLED (independent risk factors)")
 
-    # Generate correlated shocks for risk factors
+    # Generate shocks for risk factors
     # Order: [property_appreciation, stock_returns, fx_changes, inflation]
-    correlated_shocks = generate_correlated_shocks(n_samples, years)
+    if enable_correlations:
+        correlated_shocks = generate_correlated_shocks(n_samples, years)
+    else:
+        # Independent shocks (no correlation structure)
+        correlated_shocks = np.random.standard_normal((4, n_samples, years))
     property_shocks = correlated_shocks[0]  # (n_samples, years)
     stock_shocks = correlated_shocks[1]     # (n_samples, years)
     # fx_shocks = correlated_shocks[2]      # Not used directly (model has own dynamics)

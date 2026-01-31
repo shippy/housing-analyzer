@@ -130,7 +130,8 @@ def _(defaults, mo):
     enable_refinancing = mo.ui.checkbox(value=True, label="Enable mortgage refinancing (every 5 years)")
     enable_tax_benefits = mo.ui.checkbox(value=True, label="Include Czech tax benefits")
     inflation_adjust = mo.ui.checkbox(value=True, label="Show inflation-adjusted (real) wealth")
-    
+    enable_correlations = mo.ui.checkbox(value=True, label="Correlate risk factors (inflation/stocks/FX/property)")
+
     # Use vstack with individual rows for clean alignment
     mo.vstack([
         mo.hstack([
@@ -139,9 +140,10 @@ def _(defaults, mo):
         ], widths=[1, 1], gap=2),
         district,
         mo.md("**Model Options:**"),
-        mo.hstack([enable_refinancing, enable_tax_benefits, inflation_adjust], gap=1),
+        mo.hstack([enable_refinancing, enable_tax_benefits], gap=1),
+        mo.hstack([inflation_adjust, enable_correlations], gap=1),
     ])
-    return district, down_payment, enable_refinancing, enable_tax_benefits, inflation_adjust, monthly_rent, property_price, rent_inflation, usd_holdings, years
+    return district, down_payment, enable_correlations, enable_refinancing, enable_tax_benefits, inflation_adjust, monthly_rent, property_price, rent_inflation, usd_holdings, years
 
 
 @app.cell
@@ -232,14 +234,14 @@ def _(mo):
 
 
 @app.cell
-def _(district, down_payment, enable_refinancing, enable_tax_benefits, fx_mixture_enabled, fx_stable_drift, fx_weak_dollar_drift, fx_weak_dollar_prob, inflation_adjust, mo, monthly_rent, np, property_price, rent_inflation, run_button, usd_holdings, years):
+def _(district, down_payment, enable_correlations, enable_refinancing, enable_tax_benefits, fx_mixture_enabled, fx_stable_drift, fx_weak_dollar_drift, fx_weak_dollar_prob, inflation_adjust, mo, monthly_rent, np, property_price, rent_inflation, run_button, usd_holdings, years):
     # Only run when button is clicked
     mo.stop(not run_button.value)
-    
+
     # Import simulation
     try:
         from models.simulation import run_simulation
-        
+
         results = run_simulation(
             property_price=property_price.value,
             down_payment=down_payment.value,
@@ -258,6 +260,7 @@ def _(district, down_payment, enable_refinancing, enable_tax_benefits, fx_mixtur
             enable_refinancing=enable_refinancing.value,
             enable_tax_benefits=enable_tax_benefits.value,
             inflation_adjust=inflation_adjust.value,
+            enable_correlations=enable_correlations.value,
         )
     except ImportError:
         # Fallback for testing UI before models are ready
