@@ -66,10 +66,11 @@ class SimulationConfig:
     capital_gains_exempt_years: int = 5  # Years of residence for exemption
     capital_gains_tax_rate: float = 0.15  # If not exempt
     
-    # Inflation
-    inflation_mean: float = 0.025  # 2.5% annual
-    inflation_std: float = 0.015
-    
+    # Inflation (AR(1) process with persistence)
+    inflation_mean: float = 0.025  # 2.5% annual long-run mean
+    inflation_std: float = 0.015   # Innovation standard deviation
+    inflation_persistence: float = 0.7  # AR(1) coefficient (0=iid, 1=random walk)
+
     # Location
     district: str = "prague_avg"
 
@@ -379,8 +380,25 @@ def run_simulation(
         n_samples, years, correlated_shocks=stock_shocks
     )
 
-    # Sample inflation paths using correlated shocks
-    inflation_annual = config.inflation_mean + config.inflation_std * inflation_shocks
+    # Sample inflation paths using AR(1) process with correlated shocks
+    # AR(1): inflation_t = rho * inflation_{t-1} + (1-rho) * mu + sigma_innov * shock
+    # where sigma_innov = sigma * sqrt(1 - rho^2) to preserve unconditional variance
+    rho = config.inflation_persistence
+    sigma_innov = config.inflation_std * np.sqrt(1 - rho**2) if rho < 1 else config.inflation_std
+
+    inflation_annual = np.zeros((n_samples, years))
+    # Initialize at long-run mean
+    inflation_annual[:, 0] = config.inflation_mean + sigma_innov * inflation_shocks[:, 0]
+
+    for y in range(1, years):
+        inflation_annual[:, y] = (
+            rho * inflation_annual[:, y - 1]
+            + (1 - rho) * config.inflation_mean
+            + sigma_innov * inflation_shocks[:, y]
+        )
+
+    # Floor inflation at a reasonable minimum (deflation limit)
+    inflation_annual = np.maximum(inflation_annual, -0.05)
     inflation_cumulative = np.cumprod(1 + inflation_annual, axis=1)
     
     # ============================================================
