@@ -485,36 +485,66 @@ def run_simulation(
     # ============================================================
     # SCENARIO 2: RENT + INVEST
     # ============================================================
-    
+
     # USD holdings grow with stocks, converted at year-end FX
     usd_value_yearly = usd_holdings * stock_cumulative * fx_rates
-    
-    # Savings accumulation
+
+    # Savings accumulation - renter saves difference between buyer's costs and rent
     cumulative_savings = np.zeros(n_samples)
-    savings_returns = np.random.normal(
-        config.stock_return_mean, config.stock_return_std, size=(n_samples, years)
-    )
-    
+
+    # Track buyer's mortgage state for fair comparison (same as buy scenario)
+    rent_comp_principal = np.full(n_samples, loan_amount)
+    rent_comp_rate = np.full(n_samples, config.initial_mortgage_rate)
+    rent_comp_term_months = np.full(n_samples, config.mortgage_term_years * 12)
+    rent_comp_months_paid = np.zeros(n_samples)
+
     for y in range(years):
         # Rent for this year
         rent_this_year = monthly_rent * 12 * (1 + config.rent_growth_rate) ** y
-        
-        # What would buyer pay (use average mortgage payment estimate)
-        avg_mortgage = calculate_monthly_payment(
-            loan_amount, config.initial_mortgage_rate, config.mortgage_term_years * 12
-        ) * 12
-        avg_property_costs = (
+
+        # What would buyer pay THIS year (using same rate dynamics as buy scenario)
+        buyer_monthly_payment = np.array([
+            calculate_monthly_payment(p, r, int(m))
+            for p, r, m in zip(rent_comp_principal, rent_comp_rate, rent_comp_term_months)
+        ])
+        buyer_annual_mortgage = buyer_monthly_payment * 12
+
+        # Property costs buyer would pay (using simulated appreciation)
+        buyer_property_costs = (
             config.property_tax_rate + config.maintenance_rate + config.insurance_rate
-        ) * property_price * (1 + 0.05) ** y  # Rough appreciation
-        
-        # Renter saves the difference
-        annual_savings = avg_mortgage + avg_property_costs - rent_this_year
-        
-        # Compound existing savings
-        cumulative_savings *= (1 + savings_returns[:, y])
+        ) * property_values[:, y]
+
+        # Renter saves the difference (can be negative if rent > buyer's costs)
+        annual_savings = buyer_annual_mortgage + buyer_property_costs - rent_this_year
+
+        # Compound existing savings using stock returns (correlated with other factors)
+        if y > 0:
+            cumulative_savings *= (stock_cumulative[:, y] / stock_cumulative[:, y - 1])
+        else:
+            cumulative_savings *= stock_cumulative[:, 0]
         cumulative_savings += annual_savings
-        
+
         rent_wealth_yearly[:, y] = usd_value_yearly[:, y] + cumulative_savings
+
+        # Update buyer's mortgage state (same logic as buy scenario for fair comparison)
+        rent_comp_months_paid += 12
+        rent_comp_term_months = np.maximum(0, rent_comp_term_months - 12)
+
+        rent_comp_principal = np.array([
+            calculate_remaining_balance(loan_amount, r, config.mortgage_term_years * 12, int(m))
+            for r, m in zip(rent_comp_rate, rent_comp_months_paid)
+        ])
+
+        # Apply same refinancing logic as buyer
+        if enable_refinancing and (y + 1) % config.refinance_interval_years == 0:
+            new_market_rate = mortgage_rates[:, y]
+            should_refinance = (new_market_rate < rent_comp_rate - 0.005) & (rent_comp_principal > 0)
+            rent_comp_rate = np.where(should_refinance, new_market_rate, rent_comp_rate)
+            rent_comp_term_months = np.where(
+                should_refinance,
+                (config.mortgage_term_years - y - 1) * 12,
+                rent_comp_term_months
+            )
     
     # ============================================================
     # INFLATION ADJUSTMENT
