@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+*.egg-info/
+
+# Dependencies
+uv.lock
+
+# Cache
+.cache/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Data cache
+*.parquet
+
+# Marimo
+.marimo/

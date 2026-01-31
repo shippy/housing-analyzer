@@ -1,0 +1,568 @@
+"""Monte Carlo simulation with PyMC Bayesian models."""
+
+import numpy as np
+import pymc as pm
+from numpy.typing import NDArray
+from dataclasses import dataclass, field
+from typing import Any
+
+from .appreciation import AppreciationModel, fit_from_hpi_data
+from .mortgage import MortgageModel
+from .currency import CurrencyModel, FXMixtureConfig
+
+
+# Prague district appreciation multipliers (relative to city average)
+# Based on historical price growth differentials
+DISTRICT_MULTIPLIERS = {
+    "prague_avg": 1.0,
+    "prague_1": 0.95,   # Center - already expensive, slower growth
+    "prague_2": 1.05,   # Vinohrady - high demand
+    "prague_3": 1.08,   # Žižkov - gentrifying
+    "prague_4": 1.02,   # Nusle/Podolí - solid
+    "prague_5": 1.00,   # Smíchov - average
+    "prague_6": 0.98,   # Dejvice - established
+    "prague_7": 1.06,   # Holešovice - trendy
+    "prague_8": 1.04,   # Karlín - redeveloped  
+    "prague_9": 1.10,   # Vysočany - catching up
+    "prague_10": 1.03,  # Vršovice - popular
+}
+
+
+@dataclass
+class SimulationConfig:
+    """Configuration for the simulation."""
+    
+    # Property parameters
+    property_price: float  # CZK
+    down_payment: float  # CZK
+    monthly_rent: float  # CZK
+    
+    # Investment parameters
+    usd_holdings: float  # USD
+    stock_return_mean: float = 0.07  # Expected annual stock return
+    stock_return_std: float = 0.18  # Stock return volatility
+    
+    # Mortgage parameters
+    mortgage_term_years: int = 30
+    initial_mortgage_rate: float = 0.055
+    refinance_interval_years: int = 5  # Check refinancing every N years
+    refinance_cost_pct: float = 0.005  # 0.5% of remaining balance
+    
+    # Rent parameters
+    rent_growth_rate: float = 0.03
+    
+    # Property costs (as fraction of property value)
+    property_tax_rate: float = 0.001
+    maintenance_rate: float = 0.01
+    insurance_rate: float = 0.002
+    
+    # Transaction costs
+    buying_costs_rate: float = 0.04
+    selling_costs_rate: float = 0.03
+    
+    # Tax benefits (Czech specific)
+    mortgage_interest_deduction_limit: float = 300_000  # CZK/year max
+    income_tax_rate: float = 0.15  # 15% income tax
+    capital_gains_exempt_years: int = 5  # Years of residence for exemption
+    capital_gains_tax_rate: float = 0.15  # If not exempt
+    
+    # Inflation
+    inflation_mean: float = 0.025  # 2.5% annual
+    inflation_std: float = 0.015
+    
+    # Location
+    district: str = "prague_avg"
+
+
+def calculate_monthly_payment(principal: float, annual_rate: float, months: int) -> float:
+    """Calculate fixed monthly mortgage payment."""
+    if annual_rate <= 0:
+        return principal / months
+    monthly_rate = annual_rate / 12
+    payment = principal * (monthly_rate * (1 + monthly_rate) ** months) / (
+        (1 + monthly_rate) ** months - 1
+    )
+    return payment
+
+
+def calculate_remaining_balance(principal: float, annual_rate: float, 
+                                total_months: int, months_paid: int) -> float:
+    """Calculate remaining mortgage balance after N months."""
+    if months_paid >= total_months:
+        return 0.0
+    if annual_rate <= 0:
+        return principal * (1 - months_paid / total_months)
+    
+    monthly_rate = annual_rate / 12
+    monthly_payment = calculate_monthly_payment(principal, annual_rate, total_months)
+    
+    # Remaining balance formula
+    balance = principal * (1 + monthly_rate) ** months_paid - \
+              monthly_payment * ((1 + monthly_rate) ** months_paid - 1) / monthly_rate
+    return max(0, balance)
+
+
+def calculate_interest_paid_year(principal: float, annual_rate: float,
+                                  total_months: int, year: int) -> float:
+    """Calculate interest paid in a specific year of the mortgage."""
+    if annual_rate <= 0:
+        return 0.0
+    
+    monthly_rate = annual_rate / 12
+    monthly_payment = calculate_monthly_payment(principal, annual_rate, total_months)
+    
+    interest_paid = 0.0
+    for month in range(year * 12, min((year + 1) * 12, total_months)):
+        balance = calculate_remaining_balance(principal, annual_rate, total_months, month)
+        interest_this_month = balance * monthly_rate
+        interest_paid += interest_this_month
+    
+    return interest_paid
+
+
+# Global model cache to avoid refitting on every simulation
+_model_cache: dict[str, Any] = {}
+
+
+def get_fitted_models(
+    use_cache: bool = True,
+    draws: int = 1000,
+    tune: int = 500,
+) -> tuple[AppreciationModel, MortgageModel, CurrencyModel]:
+    """Get fitted PyMC models, using cache if available."""
+    cache_key = f"models_{draws}_{tune}"
+    
+    if use_cache and cache_key in _model_cache:
+        return _model_cache[cache_key]
+    
+    print("Fitting Bayesian models to historical data...")
+    
+    try:
+        from data.fetch import fetch_housing_prices, fetch_cnb_rates, fetch_fx_rates
+        
+        hp_data = fetch_housing_prices()
+        hpi_values = hp_data["hpi_index"].to_numpy()
+        appreciation_model = fit_from_hpi_data(hpi_values)
+        print(f"  Appreciation: μ={appreciation_model.summary()['mu_mean']:.1%} ± {appreciation_model.summary()['mu_std']:.1%}")
+        
+        rates_data = fetch_cnb_rates()
+        mortgage_rates = rates_data["mortgage_rate_pct"].to_numpy() / 100
+        current_mortgage_rate = float(mortgage_rates[-1]) if len(mortgage_rates) > 0 else 0.055
+        mortgage_model = MortgageModel(
+            current_rate=current_mortgage_rate,
+            historical_rates=mortgage_rates,
+            draws=draws,
+            tune=tune,
+        )
+        print(f"  Mortgage: θ={mortgage_model.summary()['theta_mean']:.1%}, current={current_mortgage_rate:.1%}")
+        
+        fx_data = fetch_fx_rates()
+        fx_rates = fx_data["usd_czk"].to_numpy()
+        current_fx = float(fx_rates[-1]) if len(fx_rates) > 0 else 24.0
+        currency_model = CurrencyModel(
+            current_rate=current_fx,
+            historical_rates=fx_rates,
+            draws=draws,
+            tune=tune,
+        )
+        print(f"  FX: σ={currency_model.summary()['sigma_mean']:.1%}, current={current_fx:.1f}")
+        
+    except Exception as e:
+        print(f"  Warning: Could not fetch data ({e}), using priors only")
+        appreciation_model = AppreciationModel(draws=draws, tune=tune)
+        mortgage_model = MortgageModel(draws=draws, tune=tune)
+        currency_model = CurrencyModel(draws=draws, tune=tune)
+    
+    models = (appreciation_model, mortgage_model, currency_model)
+    
+    if use_cache:
+        _model_cache[cache_key] = models
+    
+    return models
+
+
+def sample_stock_returns(
+    n_samples: int,
+    years: int,
+    mean: float = 0.07,
+    std: float = 0.18,
+) -> NDArray[np.float64]:
+    """Sample stock market returns with parameter uncertainty."""
+    with pm.Model():
+        mu = pm.Normal("mu", mu=mean, sigma=0.02)
+        sigma = pm.HalfNormal("sigma", sigma=std)
+        trace = pm.sample(draws=500, tune=200, cores=1, progressbar=False)
+    
+    mu_samples = trace.posterior["mu"].values.flatten()
+    sigma_samples = trace.posterior["sigma"].values.flatten()
+    
+    idx = np.random.choice(len(mu_samples), size=n_samples)
+    mus = mu_samples[idx]
+    sigmas = sigma_samples[idx]
+    
+    annual_returns = np.zeros((n_samples, years))
+    for t in range(years):
+        annual_returns[:, t] = np.random.normal(mus, sigmas)
+    
+    return np.cumprod(1 + annual_returns, axis=1)
+
+
+def run_simulation(
+    property_price: float,
+    down_payment: float,
+    usd_holdings: float,
+    monthly_rent: float,
+    years: int,
+    n_samples: int = 5000,
+    seed: int | None = None,
+    rent_growth_rate: float = 0.03,
+    use_cached_models: bool = True,
+    pymc_draws: int = 1000,
+    pymc_tune: int = 500,
+    # FX mixture model parameters
+    fx_mixture_enabled: bool = False,
+    fx_weak_dollar_prob: float = 0.6,
+    fx_weak_dollar_drift: float = -0.04,
+    fx_stable_drift: float = 0.01,
+    # New parameters
+    district: str = "prague_avg",
+    enable_refinancing: bool = True,
+    enable_tax_benefits: bool = True,
+    inflation_adjust: bool = True,
+) -> dict[str, Any]:
+    """Run Monte Carlo simulation with PyMC Bayesian models.
+    
+    New features:
+    - Yearly wealth tracking for breakeven analysis
+    - Mortgage refinancing every 5 years if rates drop
+    - Czech tax benefits (interest deduction, capital gains exemption)
+    - District-specific appreciation
+    - Inflation-adjusted wealth
+    - Downside risk metrics
+    """
+    if seed is not None:
+        np.random.seed(seed)
+    
+    config = SimulationConfig(
+        property_price=property_price,
+        down_payment=down_payment,
+        monthly_rent=monthly_rent,
+        usd_holdings=usd_holdings,
+        district=district,
+    )
+    config.rent_growth_rate = rent_growth_rate
+    
+    # Get district multiplier
+    district_mult = DISTRICT_MULTIPLIERS.get(district, 1.0)
+    
+    # Get fitted models
+    appreciation_model, mortgage_model, currency_model = get_fitted_models(
+        use_cache=use_cached_models,
+        draws=pymc_draws,
+        tune=pymc_tune,
+    )
+    
+    # Apply FX mixture config
+    fx_mixture_config = FXMixtureConfig(
+        enabled=fx_mixture_enabled,
+        weak_dollar_prob=fx_weak_dollar_prob,
+        weak_dollar_drift=fx_weak_dollar_drift,
+        stable_drift=fx_stable_drift,
+    )
+    currency_model.mixture_config = fx_mixture_config
+    
+    # Sample paths
+    print(f"Sampling {n_samples} Monte Carlo paths...")
+    if fx_mixture_enabled:
+        print(f"  FX mixture: {fx_weak_dollar_prob:.0%} weak (drift={fx_weak_dollar_drift:.1%}), "
+              f"{1-fx_weak_dollar_prob:.0%} stable (drift={fx_stable_drift:.1%})")
+    if district != "prague_avg":
+        print(f"  District: {district} (multiplier: {district_mult:.2f})")
+    
+    # Base appreciation adjusted by district
+    base_appreciation = appreciation_model.sample_paths(years, n_samples)
+    property_appreciation = base_appreciation ** district_mult  # Compound effect
+    
+    fx_rates = currency_model.sample_paths_annual(years, n_samples)
+    mortgage_rates = mortgage_model.sample_paths_annual(years, n_samples)
+    stock_cumulative = sample_stock_returns(n_samples, years)
+    
+    # Sample inflation paths
+    inflation_annual = np.random.normal(
+        config.inflation_mean, config.inflation_std, size=(n_samples, years)
+    )
+    inflation_cumulative = np.cumprod(1 + inflation_annual, axis=1)
+    
+    # ============================================================
+    # INITIALIZE TRACKING ARRAYS
+    # ============================================================
+    
+    buy_wealth_yearly = np.zeros((n_samples, years))
+    rent_wealth_yearly = np.zeros((n_samples, years))
+    
+    # ============================================================
+    # SCENARIO 1: BUY (with refinancing and tax benefits)
+    # ============================================================
+    
+    loan_amount = property_price - down_payment
+    buying_costs = property_price * config.buying_costs_rate
+    total_initial_buy = down_payment + buying_costs
+    
+    initial_usd_in_czk = usd_holdings * currency_model.current_rate
+    remaining_cash_buy = np.maximum(0, initial_usd_in_czk - total_initial_buy)
+    
+    # Track mortgage state per sample
+    current_principal = np.full(n_samples, loan_amount)
+    current_rate = np.full(n_samples, config.initial_mortgage_rate)
+    months_into_mortgage = np.zeros(n_samples)
+    remaining_term_months = np.full(n_samples, config.mortgage_term_years * 12)
+    
+    # Track cumulative tax savings
+    cumulative_tax_savings = np.zeros(n_samples)
+    
+    # Property values over time
+    property_values = property_price * property_appreciation
+    
+    # Simulate year by year
+    invested_cash = remaining_cash_buy.copy()
+    
+    for y in range(years):
+        # Monthly payment for this year
+        monthly_payment = np.array([
+            calculate_monthly_payment(p, r, int(m)) 
+            for p, r, m in zip(current_principal, current_rate, remaining_term_months)
+        ])
+        annual_mortgage = monthly_payment * 12
+        
+        # Interest paid this year (for tax deduction)
+        if enable_tax_benefits:
+            interest_paid = current_principal * current_rate  # Approximation
+            deductible_interest = np.minimum(interest_paid, config.mortgage_interest_deduction_limit)
+            tax_savings = deductible_interest * config.income_tax_rate
+            cumulative_tax_savings += tax_savings
+        
+        # Property costs
+        annual_property_costs = (
+            config.property_tax_rate + config.maintenance_rate + config.insurance_rate
+        ) * property_values[:, y]
+        
+        # Update mortgage state
+        months_into_mortgage += 12
+        remaining_term_months = np.maximum(0, remaining_term_months - 12)
+        
+        # Calculate remaining balance
+        remaining_balance = np.array([
+            calculate_remaining_balance(loan_amount, r, config.mortgage_term_years * 12, int(m))
+            for r, m in zip(current_rate, months_into_mortgage)
+        ])
+        current_principal = remaining_balance
+        
+        # Refinancing check every N years
+        if enable_refinancing and (y + 1) % config.refinance_interval_years == 0:
+            new_market_rate = mortgage_rates[:, y]
+            # Refinance if new rate is at least 0.5% lower
+            should_refinance = (new_market_rate < current_rate - 0.005) & (remaining_balance > 0)
+            
+            # Apply refinancing costs and reset terms
+            refinance_cost = remaining_balance * config.refinance_cost_pct * should_refinance
+            current_rate = np.where(should_refinance, new_market_rate, current_rate)
+            remaining_term_months = np.where(
+                should_refinance, 
+                (config.mortgage_term_years - y - 1) * 12,  # New term
+                remaining_term_months
+            )
+            invested_cash -= refinance_cost  # Pay from savings
+        
+        # Invested cash grows
+        if y > 0:
+            invested_cash *= (stock_cumulative[:, y] / stock_cumulative[:, y-1])
+        else:
+            invested_cash *= stock_cumulative[:, 0]
+        
+        # Calculate wealth at year y
+        selling_costs = property_values[:, y] * config.selling_costs_rate
+        
+        # Capital gains tax (if selling before exemption period)
+        if enable_tax_benefits and y < config.capital_gains_exempt_years:
+            capital_gain = np.maximum(0, property_values[:, y] - property_price - buying_costs)
+            capital_gains_tax = capital_gain * config.capital_gains_tax_rate
+        else:
+            capital_gains_tax = 0
+        
+        equity = property_values[:, y] - remaining_balance - selling_costs - capital_gains_tax
+        buy_wealth_yearly[:, y] = equity + invested_cash + cumulative_tax_savings
+    
+    # ============================================================
+    # SCENARIO 2: RENT + INVEST
+    # ============================================================
+    
+    # USD holdings grow with stocks, converted at year-end FX
+    usd_value_yearly = usd_holdings * stock_cumulative * fx_rates
+    
+    # Savings accumulation
+    cumulative_savings = np.zeros(n_samples)
+    savings_returns = np.random.normal(
+        config.stock_return_mean, config.stock_return_std, size=(n_samples, years)
+    )
+    
+    for y in range(years):
+        # Rent for this year
+        rent_this_year = monthly_rent * 12 * (1 + config.rent_growth_rate) ** y
+        
+        # What would buyer pay (use average mortgage payment estimate)
+        avg_mortgage = calculate_monthly_payment(
+            loan_amount, config.initial_mortgage_rate, config.mortgage_term_years * 12
+        ) * 12
+        avg_property_costs = (
+            config.property_tax_rate + config.maintenance_rate + config.insurance_rate
+        ) * property_price * (1 + 0.05) ** y  # Rough appreciation
+        
+        # Renter saves the difference
+        annual_savings = avg_mortgage + avg_property_costs - rent_this_year
+        
+        # Compound existing savings
+        cumulative_savings *= (1 + savings_returns[:, y])
+        cumulative_savings += annual_savings
+        
+        rent_wealth_yearly[:, y] = usd_value_yearly[:, y] + cumulative_savings
+    
+    # ============================================================
+    # INFLATION ADJUSTMENT
+    # ============================================================
+    
+    if inflation_adjust:
+        buy_wealth_yearly_real = buy_wealth_yearly / inflation_cumulative
+        rent_wealth_yearly_real = rent_wealth_yearly / inflation_cumulative
+    else:
+        buy_wealth_yearly_real = buy_wealth_yearly
+        rent_wealth_yearly_real = rent_wealth_yearly
+    
+    # Final wealth (nominal and real)
+    buy_wealth = buy_wealth_yearly[:, -1]
+    rent_wealth = rent_wealth_yearly[:, -1]
+    buy_wealth_real = buy_wealth_yearly_real[:, -1]
+    rent_wealth_real = rent_wealth_yearly_real[:, -1]
+    
+    # ============================================================
+    # ANALYSIS
+    # ============================================================
+    
+    def percentiles(arr: NDArray) -> dict[str, float]:
+        return {
+            "p5": float(np.percentile(arr, 5)),
+            "p25": float(np.percentile(arr, 25)),
+            "p50": float(np.percentile(arr, 50)),
+            "p75": float(np.percentile(arr, 75)),
+            "p95": float(np.percentile(arr, 95)),
+            "mean": float(np.mean(arr)),
+            "std": float(np.std(arr)),
+        }
+    
+    # Breakeven timeline: P(buy wins) at each year
+    buy_wins_by_year = np.mean(buy_wealth_yearly_real > rent_wealth_yearly_real, axis=0)
+    
+    # Final probabilities
+    buy_wins_prob = float(np.mean(buy_wealth_real > rent_wealth_real))
+    
+    # Downside risk metrics
+    initial_capital = initial_usd_in_czk
+    
+    # P(underwater): property value < remaining mortgage
+    p_underwater_by_year = []
+    for y in range(years):
+        remaining_bal = np.array([
+            calculate_remaining_balance(loan_amount, config.initial_mortgage_rate, 
+                                       config.mortgage_term_years * 12, (y+1) * 12)
+        ] * n_samples)
+        underwater = property_values[:, y] < remaining_bal
+        p_underwater_by_year.append(float(np.mean(underwater)))
+    
+    # P(rent wealth < initial capital)
+    p_rent_loss = float(np.mean(rent_wealth_real < initial_capital / inflation_cumulative[:, -1]))
+    p_buy_loss = float(np.mean(buy_wealth_real < initial_capital / inflation_cumulative[:, -1]))
+    
+    # Worst 5% scenarios
+    buy_worst_5pct = float(np.percentile(buy_wealth_real, 5))
+    rent_worst_5pct = float(np.percentile(rent_wealth_real, 5))
+    
+    wealth_diff = buy_wealth_real - rent_wealth_real
+    
+    summary_stats = {
+        "buy": percentiles(buy_wealth),
+        "rent": percentiles(rent_wealth),
+        "buy_real": percentiles(buy_wealth_real),
+        "rent_real": percentiles(rent_wealth_real),
+        "difference": percentiles(wealth_diff),
+        "buy_wins_prob": buy_wins_prob,
+        "expected_advantage_buy": float(np.mean(wealth_diff)),
+        "median_advantage_buy": float(np.median(wealth_diff)),
+    }
+    
+    downside_metrics = {
+        "p_underwater_final": p_underwater_by_year[-1] if p_underwater_by_year else 0,
+        "p_underwater_by_year": p_underwater_by_year,
+        "p_rent_loss_real": p_rent_loss,
+        "p_buy_loss_real": p_buy_loss,
+        "buy_worst_5pct_real": buy_worst_5pct,
+        "rent_worst_5pct_real": rent_worst_5pct,
+        "buy_var_95": float(initial_capital - np.percentile(buy_wealth_real, 5)),
+        "rent_var_95": float(initial_capital - np.percentile(rent_wealth_real, 5)),
+    }
+    
+    model_summaries = {
+        "appreciation": appreciation_model.summary(),
+        "mortgage": mortgage_model.summary(),
+        "currency": currency_model.summary(),
+    }
+    
+    return {
+        "buy_wealth": buy_wealth,
+        "rent_wealth": rent_wealth,
+        "buy_wealth_real": buy_wealth_real,
+        "rent_wealth_real": rent_wealth_real,
+        "buy_wealth_yearly": buy_wealth_yearly,
+        "rent_wealth_yearly": rent_wealth_yearly,
+        "buy_wealth_yearly_real": buy_wealth_yearly_real,
+        "rent_wealth_yearly_real": rent_wealth_yearly_real,
+        "buy_wins_prob": buy_wins_prob,
+        "buy_wins_by_year": buy_wins_by_year.tolist(),
+        "summary_stats": summary_stats,
+        "downside_metrics": downside_metrics,
+        "model_summaries": model_summaries,
+        "config": config,
+        "district_multiplier": district_mult,
+        "inflation_cumulative_median": float(np.median(inflation_cumulative[:, -1])),
+        "paths": {
+            "property_appreciation": property_appreciation,
+            "fx_rates": fx_rates,
+            "stock_cumulative": stock_cumulative,
+            "mortgage_rates": mortgage_rates,
+            "inflation_cumulative": inflation_cumulative,
+        },
+    }
+
+
+def print_summary(results: dict[str, Any]) -> None:
+    """Print a human-readable summary."""
+    stats = results["summary_stats"]
+    downside = results.get("downside_metrics", {})
+    
+    print("=" * 60)
+    print("BUY vs RENT+INVEST Monte Carlo Simulation")
+    print("=" * 60)
+    
+    print(f"\n--- Results (inflation-adjusted) ---")
+    print(f"Probability that BUYING wins: {stats['buy_wins_prob']:.1%}")
+    print(f"Expected advantage of buying: {stats['expected_advantage_buy']:,.0f} CZK")
+    
+    print("\n--- Final Wealth Distribution (real CZK) ---")
+    print(f"Buy median: {stats['buy_real']['p50']:,.0f}")
+    print(f"Rent median: {stats['rent_real']['p50']:,.0f}")
+    
+    if downside:
+        print("\n--- Downside Risk ---")
+        print(f"P(underwater on mortgage): {downside['p_underwater_final']:.1%}")
+        print(f"P(buy wealth < initial): {downside['p_buy_loss_real']:.1%}")
+        print(f"P(rent wealth < initial): {downside['p_rent_loss_real']:.1%}")
+        print(f"Worst 5% buy outcome: {downside['buy_worst_5pct_real']:,.0f} CZK")
+        print(f"Worst 5% rent outcome: {downside['rent_worst_5pct_real']:,.0f} CZK")
