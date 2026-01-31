@@ -56,7 +56,8 @@ class AppreciationModel:
             self.trace = pm.sample(
                 draws=self.draws,
                 tune=self.tune,
-                cores=1,  # Safer in containerized environments
+                chains=4,  # 4 chains for robust convergence diagnostics
+                cores=1,   # Sequential for safety in notebooks/containers
                 progressbar=False,
                 return_inferencedata=True,
             )

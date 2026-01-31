@@ -105,6 +105,7 @@ class CurrencyModel:
             self.trace = pm.sample(
                 draws=self.draws,
                 tune=self.tune,
+                chains=4,
                 cores=1,
                 progressbar=False,
                 return_inferencedata=True,

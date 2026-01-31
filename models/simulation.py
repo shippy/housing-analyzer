@@ -265,7 +265,10 @@ def sample_stock_returns(
     with pm.Model():
         mu = pm.Normal("mu", mu=mean, sigma=0.02)
         sigma = pm.HalfNormal("sigma", sigma=std)
-        trace = pm.sample(draws=500, tune=200, cores=1, progressbar=False)
+        trace = pm.sample(
+            draws=500, tune=500, chains=4, cores=1,
+            progressbar=False, target_accept=0.95
+        )
 
     mu_samples = trace.posterior["mu"].values.flatten()
     sigma_samples = trace.posterior["sigma"].values.flatten()
