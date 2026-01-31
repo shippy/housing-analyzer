@@ -278,11 +278,12 @@ def _(mo, results):
     prob = results["buy_wins_prob"]
     verdict = "**BUY**" if prob > 0.5 else "**RENT + INVEST**"
     color = "green" if prob > 0.5 else "blue"
-    
+
     stats = results["summary_stats"]
-    buy_stats = stats.get("buy", {})
-    rent_stats = stats.get("rent", {})
-    
+    # Use inflation-adjusted (real) wealth to match the recommendation logic
+    buy_stats = stats.get("buy_real", stats.get("buy", {}))
+    rent_stats = stats.get("rent_real", stats.get("rent", {}))
+
     # Handle both old mock format and new nested format
     buy_median = buy_stats.get("p50", stats.get("buy_median", 0))
     rent_median = rent_stats.get("p50", stats.get("rent_median", 0))
@@ -310,18 +311,23 @@ def _(mo, results):
 
 
 @app.cell
-def _(go, make_subplots, np, results):
+def _(go, inflation_adjust, make_subplots, np, results):
+    # Use inflation-adjusted values if enabled (consistent with recommendation)
+    _buy_wealth = results.get("buy_wealth_real", results["buy_wealth"]) if inflation_adjust.value else results["buy_wealth"]
+    _rent_wealth = results.get("rent_wealth_real", results["rent_wealth"]) if inflation_adjust.value else results["rent_wealth"]
+    _suffix = " (real)" if inflation_adjust.value else " (nominal)"
+
     # Wealth distribution comparison
     fig = make_subplots(
         rows=1, cols=2,
-        subplot_titles=("Final Wealth Distribution", "Buy vs Rent Scatter"),
+        subplot_titles=(f"Final Wealth Distribution{_suffix}", "Buy vs Rent Scatter"),
         horizontal_spacing=0.1,
     )
-    
+
     # Histogram
     fig.add_trace(
         go.Histogram(
-            x=results["buy_wealth"] / 1e6,
+            x=_buy_wealth / 1e6,
             name="Buy",
             opacity=0.7,
             marker_color="green",
@@ -331,7 +337,7 @@ def _(go, make_subplots, np, results):
     )
     fig.add_trace(
         go.Histogram(
-            x=results["rent_wealth"] / 1e6,
+            x=_rent_wealth / 1e6,
             name="Rent+Invest",
             opacity=0.7,
             marker_color="blue",
@@ -339,13 +345,13 @@ def _(go, make_subplots, np, results):
         ),
         row=1, col=1,
     )
-    
+
     # Scatter (subsample for performance)
-    idx = np.random.choice(len(results["buy_wealth"]), size=min(500, len(results["buy_wealth"])), replace=False)
+    idx = np.random.choice(len(_buy_wealth), size=min(500, len(_buy_wealth)), replace=False)
     fig.add_trace(
         go.Scatter(
-            x=results["buy_wealth"][idx] / 1e6,
-            y=results["rent_wealth"][idx] / 1e6,
+            x=_buy_wealth[idx] / 1e6,
+            y=_rent_wealth[idx] / 1e6,
             mode="markers",
             marker=dict(size=4, opacity=0.5),
             name="Scenarios",
@@ -355,7 +361,7 @@ def _(go, make_subplots, np, results):
     )
     
     # Add diagonal line (break-even)
-    max_val = max(results["buy_wealth"].max(), results["rent_wealth"].max()) / 1e6
+    max_val = max(_buy_wealth.max(), _rent_wealth.max()) / 1e6
     fig.add_trace(
         go.Scatter(
             x=[0, max_val],
