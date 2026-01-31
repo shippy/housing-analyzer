@@ -386,9 +386,10 @@ def run_simulation(
     # ============================================================
     # INITIALIZE TRACKING ARRAYS
     # ============================================================
-    
+
     buy_wealth_yearly = np.zeros((n_samples, years))
     rent_wealth_yearly = np.zeros((n_samples, years))
+    remaining_balance_yearly = np.zeros((n_samples, years))  # For underwater calculation
     
     # ============================================================
     # SCENARIO 1: BUY (with refinancing and tax benefits)
@@ -446,6 +447,7 @@ def run_simulation(
             for r, m in zip(current_rate, months_into_mortgage)
         ])
         current_principal = remaining_balance
+        remaining_balance_yearly[:, y] = remaining_balance  # Track for underwater calculation
         
         # Refinancing check every N years
         if enable_refinancing and (y + 1) % config.refinance_interval_years == 0:
@@ -588,13 +590,10 @@ def run_simulation(
     initial_capital = initial_usd_in_czk
     
     # P(underwater): property value < remaining mortgage
+    # Uses per-sample remaining balances that account for refinancing
     p_underwater_by_year = []
     for y in range(years):
-        remaining_bal = np.array([
-            calculate_remaining_balance(loan_amount, config.initial_mortgage_rate, 
-                                       config.mortgage_term_years * 12, (y+1) * 12)
-        ] * n_samples)
-        underwater = property_values[:, y] < remaining_bal
+        underwater = property_values[:, y] < remaining_balance_yearly[:, y]
         p_underwater_by_year.append(float(np.mean(underwater)))
     
     # P(rent wealth < initial capital)
