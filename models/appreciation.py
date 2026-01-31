@@ -37,9 +37,10 @@ class AppreciationModel:
         """Fit the Bayesian model to historical data."""
         with pm.Model() as model:
             # Priors for mean annual return and volatility
-            # Based on long-run real estate expectations
-            mu = pm.Normal("mu", mu=0.05, sigma=0.03)  # ~5% expected, wide prior
-            sigma = pm.HalfNormal("sigma", sigma=0.10)  # Volatility prior
+            # Use weakly informative priors to allow data to dominate
+            # Wider sigma allows for extreme scenarios (crashes, booms)
+            mu = pm.Normal("mu", mu=0.04, sigma=0.06)  # Centered at 4%, wide uncertainty
+            sigma = pm.HalfNormal("sigma", sigma=0.15)  # Allow higher volatility
             
             if self.historical_returns is not None and len(self.historical_returns) > 0:
                 # Likelihood: observed returns are normally distributed
