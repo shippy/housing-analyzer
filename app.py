@@ -45,6 +45,25 @@ def _(mo):
 
 
 @app.cell
+def _(mo):
+    # Scenario presets as reference
+    preset_info = mo.accordion({
+        "📋 Scenario Presets (reference)": mo.md("""
+| Preset | Property | Down Payment | Rent | Years | FX | Notes |
+|--------|----------|--------------|------|-------|-----|-------|
+| **Conservative** | 25M | 5M (20%) | 30k | 10 | Bearish | Assumes weak USD, shorter horizon |
+| **Optimistic** | 25M | 7.5M (30%) | 25k | 15 | Neutral | Higher down payment, longer horizon |
+| **First-time Buyer** | 15M | 3M (20%) | 25k | 10 | Neutral | Smaller property, typical starter |
+| **Buy-to-Let** | 25M | 5M | 30k | 15 | Neutral | Enable BTL mode, 2.5% yield |
+
+*Adjust the sliders below to match your scenario.*
+""")
+    })
+    preset_info
+    return ()
+
+
+@app.cell
 def _(defaults, mo):
     # Property inputs - defaults loaded from .env via settings.py
     property_price = mo.ui.slider(
@@ -170,10 +189,33 @@ def _(defaults, mo):
         mo.md("**Model Options:**"),
         mo.hstack([enable_refinancing, enable_tax_benefits], gap=1),
         mo.hstack([inflation_adjust, enable_correlations], gap=1),
-        mo.md("**Buy-to-Let Mode:**"),
-        mo.hstack([buy_to_let, rental_yield, btl_expense_rate], gap=1),
     ])
     return btl_expense_rate, buy_to_let, district, down_payment, enable_correlations, enable_refinancing, enable_tax_benefits, inflation_adjust, monthly_rent, property_price, renovation_cost, rent_inflation, rental_yield, usd_holdings, years
+
+
+@app.cell
+def _(btl_expense_rate, buy_to_let, mo, property_price, rental_yield):
+    # Show BTL controls conditionally with live net yield
+    if buy_to_let.value:
+        net_yield = rental_yield.value * (1 - btl_expense_rate.value)
+        net_monthly = property_price.value * net_yield / 12
+        btl_display = mo.vstack([
+            mo.md("**Buy-to-Let Mode:**"),
+            buy_to_let,
+            mo.hstack([rental_yield, btl_expense_rate], gap=1),
+            mo.callout(
+                mo.md(f"**Net yield: {net_yield:.1%}** → {net_monthly:,.0f} CZK/month after expenses"),
+                kind="info"
+            ),
+        ])
+    else:
+        btl_display = mo.vstack([
+            mo.md("**Buy-to-Let Mode:**"),
+            buy_to_let,
+            mo.md("*Enable to configure rental yield and landlord expenses*"),
+        ])
+    btl_display
+    return ()
 
 
 @app.cell
@@ -314,10 +356,8 @@ def _(btl_expense_rate, buy_to_let, district, down_payment, enable_correlations,
 @app.cell
 def _(mo, results):
     prob = results["buy_wins_prob"]
-    verdict = "**BUY**" if prob > 0.5 else "**RENT + INVEST**"
-    color = "green" if prob > 0.5 else "blue"
-
     stats = results["summary_stats"]
+
     # Use inflation-adjusted (real) wealth to match the recommendation logic
     buy_stats = stats.get("buy_real", stats.get("buy", {}))
     rent_stats = stats.get("rent_real", stats.get("rent", {}))
@@ -329,23 +369,60 @@ def _(mo, results):
     rent_p5 = rent_stats.get("p5", stats.get("rent_p10", 0))
     buy_p95 = buy_stats.get("p95", stats.get("buy_p90", 0))
     rent_p95 = rent_stats.get("p95", stats.get("rent_p90", 0))
-    
-    mo.md(
-        f"""
-        ## 🎯 Result Summary
-        
-        **Probability that buying wins:** {prob:.1%}
-        
-        Based on the simulation, the recommended strategy is: {verdict}
-        
-        | Metric | Buy | Rent+Invest |
-        |--------|-----|-------------|
-        | Median Final Wealth | {buy_median:,.0f} CZK | {rent_median:,.0f} CZK |
-        | 5th Percentile (pessimistic) | {buy_p5:,.0f} CZK | {rent_p5:,.0f} CZK |
-        | 95th Percentile (optimistic) | {buy_p95:,.0f} CZK | {rent_p95:,.0f} CZK |
-        """
+
+    # Determine verdict and confidence
+    if prob > 0.6:
+        verdict = "BUY"
+        verdict_icon = "🏠"
+        callout_kind = "success"
+        confidence = "High confidence"
+    elif prob > 0.5:
+        verdict = "BUY"
+        verdict_icon = "🏠"
+        callout_kind = "warn"
+        confidence = "Marginal"
+    elif prob > 0.4:
+        verdict = "RENT + INVEST"
+        verdict_icon = "📈"
+        callout_kind = "warn"
+        confidence = "Marginal"
+    else:
+        verdict = "RENT + INVEST"
+        verdict_icon = "📈"
+        callout_kind = "info"
+        confidence = "High confidence"
+
+    expected_advantage = stats.get("expected_advantage_buy", 0)
+    adv_sign = "+" if expected_advantage > 0 else ""
+
+    mo.md("## 🎯 Result Summary")
+    return buy_median, buy_p5, buy_p95, buy_stats, callout_kind, confidence, expected_advantage, adv_sign, prob, rent_median, rent_p5, rent_p95, rent_stats, stats, verdict, verdict_icon
+
+
+@app.cell
+def _(adv_sign, buy_median, buy_p5, buy_p95, callout_kind, confidence, expected_advantage, mo, prob, rent_median, rent_p5, rent_p95, verdict, verdict_icon):
+    # Prominent verdict callout
+    verdict_callout = mo.callout(
+        mo.md(f"""
+### {verdict_icon} Recommendation: **{verdict}**
+
+**P(Buy Wins): {prob:.1%}** · {confidence} · Expected advantage: {adv_sign}{expected_advantage:,.0f} CZK
+"""),
+        kind=callout_kind,
     )
-    return buy_median, buy_p5, buy_p95, buy_stats, color, prob, rent_median, rent_p5, rent_p95, rent_stats, stats, verdict
+
+    results_table = mo.md(f"""
+| Metric | Buy | Rent+Invest | Difference |
+|--------|-----|-------------|------------|
+| **Median Wealth** | {buy_median:,.0f} | {rent_median:,.0f} | {buy_median - rent_median:+,.0f} |
+| 5th Pctl (downside) | {buy_p5:,.0f} | {rent_p5:,.0f} | {buy_p5 - rent_p5:+,.0f} |
+| 95th Pctl (upside) | {buy_p95:,.0f} | {rent_p95:,.0f} | {buy_p95 - rent_p95:+,.0f} |
+
+*All values in CZK, inflation-adjusted*
+""")
+
+    mo.vstack([verdict_callout, results_table])
+    return results_table, verdict_callout
 
 
 @app.cell
