@@ -219,11 +219,36 @@ def _(btl_expense_rate, buy_to_let, mo, property_price, rental_yield):
 
 
 @app.cell
+def _(down_payment, mo, property_price, renovation_cost, usd_holdings):
+    # Show funding warning if down payment exceeds USD holdings
+    # Assume ~20.5 CZK/USD as approximate current rate
+    fx_rate_approx = 20.5
+    closing_costs_rate = 0.04
+
+    initial_usd_czk = usd_holdings.value * fx_rate_approx
+    total_upfront = down_payment.value + (property_price.value * closing_costs_rate) + renovation_cost.value
+    shortfall = total_upfront - initial_usd_czk
+
+    if shortfall > 0:
+        mo.callout(
+            mo.md(f"""
+**Funding note:** Down payment + costs exceed USD holdings by **{shortfall:,.0f} CZK**
+
+The model assumes you have additional CZK savings for this. These funds are *not* counted
+in the rent scenario (they wouldn't be invested in stocks). If you would invest this CZK
+in stocks when renting, the comparison is asymmetric.
+"""),
+            kind="warn"
+        )
+    return ()
+
+
+@app.cell
 def _(mo):
     mo.md(
         """
         ### 💱 FX Outlook (USD/CZK)
-        
+
         Enable the mixture model to incorporate your view on dollar strength.
         Each simulation path is assigned to either a "weak dollar" or "stable" regime.
         """

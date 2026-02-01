@@ -449,8 +449,15 @@ def run_simulation(
     loan_amount = property_price - down_payment
     buying_costs = property_price * config.buying_costs_rate
     total_initial_buy = down_payment + buying_costs + renovation_cost
-    
+
     initial_usd_in_czk = usd_holdings * currency_model.current_rate
+
+    # Warn if down payment exceeds available funds (comparison becomes asymmetric)
+    if total_initial_buy > initial_usd_in_czk:
+        shortfall = total_initial_buy - initial_usd_in_czk
+        print(f"  ⚠️  Down payment exceeds USD holdings by {shortfall:,.0f} CZK")
+        print(f"      Model assumes additional CZK savings (not compared in rent scenario)")
+
     remaining_cash_buy = np.maximum(0, initial_usd_in_czk - total_initial_buy)
     
     # Track mortgage state per sample
