@@ -49,12 +49,26 @@ def _(mo):
     # Scenario presets as reference
     preset_info = mo.accordion({
         "📋 Scenario Presets (reference)": mo.md("""
-| Preset | Property | Down Payment | Rent | Years | FX | Notes |
-|--------|----------|--------------|------|-------|-----|-------|
-| **Conservative** | 25M | 5M (20%) | 30k | 10 | Bearish | Assumes weak USD, shorter horizon |
-| **Optimistic** | 25M | 7.5M (30%) | 25k | 15 | Neutral | Higher down payment, longer horizon |
-| **First-time Buyer** | 15M | 3M (20%) | 25k | 10 | Neutral | Smaller property, typical starter |
-| **Buy-to-Let** | 25M | 5M | 30k | 15 | Neutral | Enable BTL mode, 2.5% yield |
+**Property (what you buy):**
+| Preset | Price | Down Payment | Years | FX Outlook |
+|--------|-------|--------------|-------|------------|
+| Conservative | 25M | 5M (20%) | 10 | Bearish USD |
+| Optimistic | 25M | 7.5M (30%) | 15 | Neutral |
+| First-time | 15M | 3M (20%) | 10 | Neutral |
+| Buy-to-Let | 25M | 5M (20%) | 15 | Neutral |
+
+**You as tenant (rent you pay):**
+| Preset | Monthly Rent | Growth |
+|--------|--------------|--------|
+| Conservative | 30k | 3% |
+| Optimistic | 25k | 3% |
+| First-time | 25k | 3% |
+| Buy-to-Let | 30k | 3% |
+
+**You as landlord (BTL only):**
+| Preset | Gross Yield | Expenses | Net Yield |
+|--------|-------------|----------|-----------|
+| Buy-to-Let | 2.5% | 30% | 1.75% |
 
 *Adjust the sliders below to match your scenario.*
 """)
