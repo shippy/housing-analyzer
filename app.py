@@ -230,7 +230,7 @@ def _(down_payment, mo, property_price, renovation_cost, usd_holdings):
     shortfall = total_upfront - initial_usd_czk
 
     if shortfall > 0:
-        mo.callout(
+        funding_warning = mo.callout(
             mo.md(f"""
 **Funding note:** Down payment + costs exceed USD holdings by **{shortfall:,.0f} CZK**
 
@@ -240,6 +240,10 @@ in stocks when renting, the comparison is asymmetric.
 """),
             kind="warn"
         )
+    else:
+        funding_warning = mo.md("")  # Empty when no shortfall
+
+    funding_warning
     return ()
 
 
