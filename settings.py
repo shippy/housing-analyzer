@@ -37,6 +37,17 @@ class ScenarioDefaults(BaseSettings):
     # Default district
     district: str = "prague_avg"
 
+    # Buy-to-let mode
+    buy_to_let: bool = False
+    rental_yield: float = 0.025  # 2.5% gross
+    btl_expense_rate: float = 0.30  # 30% expenses
+
+    # FX mixture model (bearish USD view)
+    fx_mixture_enabled: bool = False
+    fx_weak_dollar_prob: float = 0.6
+    fx_weak_dollar_drift: float = -0.04
+    fx_stable_drift: float = 0.01
+
 
 # Singleton instance
 defaults = ScenarioDefaults()

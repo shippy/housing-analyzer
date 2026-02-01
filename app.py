@@ -161,12 +161,12 @@ def _(defaults, mo):
     enable_correlations = mo.ui.checkbox(value=True, label="Correlate risk factors (inflation/stocks/FX/property)")
 
     # Buy-to-let mode
-    buy_to_let = mo.ui.checkbox(value=False, label="Buy-to-let mode (rent out property, live in smaller rental)")
+    buy_to_let = mo.ui.checkbox(value=defaults.buy_to_let, label="Buy-to-let mode (rent out property, live in smaller rental)")
     rental_yield = mo.ui.slider(
         start=0.015,
         stop=0.05,
         step=0.005,
-        value=0.025,
+        value=defaults.rental_yield,
         label="Gross Rental Yield",
         show_value=True,
     )
@@ -174,7 +174,7 @@ def _(defaults, mo):
         start=0.10,
         stop=0.50,
         step=0.05,
-        value=0.30,
+        value=defaults.btl_expense_rate,
         label="Landlord Expenses (%)",
         show_value=True,
     )
@@ -261,36 +261,36 @@ def _(mo):
 
 
 @app.cell
-def _(mo):
+def _(defaults, mo):
     # FX mixture model controls
     fx_mixture_enabled = mo.ui.checkbox(
-        value=False,
+        value=defaults.fx_mixture_enabled,
         label="Enable FX mixture model (override historical drift)",
     )
-    
+
     fx_weak_dollar_prob = mo.ui.slider(
         start=0.0,
         stop=1.0,
         step=0.05,
-        value=0.6,
+        value=defaults.fx_weak_dollar_prob,
         label="P(Weak Dollar Regime)",
         show_value=True,
     )
-    
+
     fx_weak_dollar_drift = mo.ui.slider(
         start=-0.10,
         stop=0.0,
         step=0.01,
-        value=-0.04,
+        value=defaults.fx_weak_dollar_drift,
         label="Weak Dollar Annual Drift",
         show_value=True,
     )
-    
+
     fx_stable_drift = mo.ui.slider(
         start=-0.02,
         stop=0.05,
         step=0.01,
-        value=0.01,
+        value=defaults.fx_stable_drift,
         label="Stable/Strong Dollar Annual Drift",
         show_value=True,
     )

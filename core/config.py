@@ -65,6 +65,15 @@ class ScenarioConfig:
             years=defaults.years,
             rent_growth_rate=defaults.rent_inflation,
             district=defaults.district,
+            # Buy-to-let
+            buy_to_let=defaults.buy_to_let,
+            rental_yield=defaults.rental_yield,
+            btl_expense_rate=defaults.btl_expense_rate,
+            # FX mixture
+            fx_mixture_enabled=defaults.fx_mixture_enabled,
+            fx_weak_dollar_prob=defaults.fx_weak_dollar_prob,
+            fx_weak_dollar_drift=defaults.fx_weak_dollar_drift,
+            fx_stable_drift=defaults.fx_stable_drift,
         )
 
     def to_dict(self) -> dict[str, Any]:
