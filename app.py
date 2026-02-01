@@ -45,39 +45,6 @@ def _(mo):
 
 
 @app.cell
-def _(mo):
-    # Scenario presets as reference
-    preset_info = mo.accordion({
-        "📋 Scenario Presets (reference)": mo.md("""
-**Property (what you buy):**
-| Preset | Price | Down Payment | Years | FX Outlook |
-|--------|-------|--------------|-------|------------|
-| Conservative | 25M | 5M (20%) | 10 | Bearish USD |
-| Optimistic | 25M | 7.5M (30%) | 15 | Neutral |
-| First-time | 15M | 3M (20%) | 10 | Neutral |
-| Buy-to-Let | 25M | 5M (20%) | 15 | Neutral |
-
-**You as tenant (rent you pay):**
-| Preset | Monthly Rent | Growth |
-|--------|--------------|--------|
-| Conservative | 30k | 3% |
-| Optimistic | 25k | 3% |
-| First-time | 25k | 3% |
-| Buy-to-Let | 30k | 3% |
-
-**You as landlord (BTL only):**
-| Preset | Gross Yield | Expenses | Net Yield |
-|--------|-------------|----------|-----------|
-| Buy-to-Let | 2.5% | 30% | 1.75% |
-
-*Adjust the sliders below to match your scenario.*
-""")
-    })
-    preset_info
-    return ()
-
-
-@app.cell
 def _(defaults, mo):
     # Property inputs - defaults loaded from .env via settings.py
     property_price = mo.ui.slider(
