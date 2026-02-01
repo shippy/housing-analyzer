@@ -40,7 +40,7 @@ def add_common_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--monthly-rent",
         type=float,
-        help="Monthly rent in CZK (default: from .env)",
+        help="Your rent as tenant in CZK/month (default: from .env)",
     )
     parser.add_argument(
         "--renovation-cost",
@@ -63,7 +63,7 @@ def add_common_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--rent-growth",
         type=float,
-        help="Annual rent growth rate (default: 0.03)",
+        help="Your rent growth rate as tenant (default: 0.03 = 3%%/yr)",
     )
 
     # FX presets
@@ -137,7 +137,7 @@ def add_common_args(parser: argparse.ArgumentParser) -> None:
         "--rental-yield",
         type=float,
         default=0.025,
-        help="Gross annual rental yield on property (default: 0.025 = 2.5%%)",
+        help="Gross yield as landlord: annual rent / property value (default: 0.025 = 2.5%%)",
     )
     parser.add_argument(
         "--btl-expense-rate",

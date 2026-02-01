@@ -98,7 +98,7 @@ def _(defaults, mo):
         stop=60_000,
         step=1_000,
         value=defaults.monthly_rent,
-        label="Monthly Rent (CZK)",
+        label="Your Rent (CZK/mo, as tenant)",
         show_value=True,
     )
 
@@ -125,7 +125,7 @@ def _(defaults, mo):
         stop=0.10,
         step=0.01,
         value=defaults.rent_inflation,
-        label="Annual Rent Inflation",
+        label="Your Rent Growth %/yr (as tenant)",
         show_value=True,
     )
     
@@ -167,7 +167,7 @@ def _(defaults, mo):
         stop=0.05,
         step=0.005,
         value=defaults.rental_yield,
-        label="Gross Rental Yield",
+        label="Gross Yield (as landlord)",
         show_value=True,
     )
     btl_expense_rate = mo.ui.slider(
