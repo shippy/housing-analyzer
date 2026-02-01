@@ -193,13 +193,22 @@ def _(defaults, mo):
         show_value=True,
     )
 
-    # Use vstack with individual rows for clean alignment
+    # Organized layout with clear sections
     mo.vstack([
-        mo.hstack([
-            mo.vstack([property_price, usd_holdings, years], align="stretch"),
-            mo.vstack([down_payment, monthly_rent, rent_inflation], align="stretch"),
-            mo.vstack([renovation_cost, district], align="stretch"),
-        ], widths=[1, 1, 1], gap=2),
+        # Property section
+        mo.md("**Property (what you buy):**"),
+        mo.hstack([property_price, down_payment, renovation_cost], gap=1),
+        mo.hstack([district, years], gap=1),
+
+        # Your capital
+        mo.md("**Your Capital:**"),
+        usd_holdings,
+
+        # You as tenant
+        mo.md("**You as Tenant (rent you pay):**"),
+        mo.hstack([monthly_rent, rent_inflation], gap=1),
+
+        # Model options
         mo.md("**Model Options:**"),
         mo.hstack([enable_refinancing, enable_tax_benefits], gap=1),
         mo.hstack([inflation_adjust, enable_correlations], gap=1),
@@ -214,7 +223,7 @@ def _(btl_expense_rate, buy_to_let, mo, property_price, rental_yield):
         net_yield = rental_yield.value * (1 - btl_expense_rate.value)
         net_monthly = property_price.value * net_yield / 12
         btl_display = mo.vstack([
-            mo.md("**Buy-to-Let Mode:**"),
+            mo.md("**You as Landlord (BTL mode):**"),
             buy_to_let,
             mo.hstack([rental_yield, btl_expense_rate], gap=1),
             mo.callout(
@@ -224,7 +233,7 @@ def _(btl_expense_rate, buy_to_let, mo, property_price, rental_yield):
         ])
     else:
         btl_display = mo.vstack([
-            mo.md("**Buy-to-Let Mode:**"),
+            mo.md("**You as Landlord (BTL mode):**"),
             buy_to_let,
             mo.md("*Enable to configure rental yield and landlord expenses*"),
         ])
