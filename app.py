@@ -56,12 +56,13 @@ def _(defaults, mo):
         show_value=True,
     )
 
-    down_payment = mo.ui.slider(
-        start=1_000_000,
-        stop=25_000_000,
-        step=500_000,
-        value=defaults.down_payment,
-        label="Down Payment (CZK)",
+    # Down payment as percentage of property price (scales automatically)
+    down_payment_pct = mo.ui.slider(
+        start=0.10,
+        stop=0.50,
+        step=0.05,
+        value=0.20,  # 20% default
+        label="Down Payment (%)",
         show_value=True,
     )
 
@@ -164,7 +165,7 @@ def _(defaults, mo):
     mo.vstack([
         # Property section
         mo.md("**Property (what you buy):**"),
-        mo.hstack([property_price, down_payment, renovation_cost], gap=1),
+        mo.hstack([property_price, down_payment_pct, renovation_cost], gap=1),
         mo.hstack([district, years], gap=1),
 
         # Your capital
@@ -180,7 +181,7 @@ def _(defaults, mo):
         mo.hstack([enable_refinancing, enable_tax_benefits], gap=1),
         mo.hstack([inflation_adjust, enable_correlations], gap=1),
     ])
-    return btl_expense_rate, buy_to_let, district, down_payment, enable_correlations, enable_refinancing, enable_tax_benefits, inflation_adjust, monthly_rent, property_price, renovation_cost, rent_inflation, rental_yield, usd_holdings, years
+    return btl_expense_rate, buy_to_let, district, down_payment_pct, enable_correlations, enable_refinancing, enable_tax_benefits, inflation_adjust, monthly_rent, property_price, renovation_cost, rent_inflation, rental_yield, usd_holdings, years
 
 
 @app.cell
@@ -209,15 +210,24 @@ def _(btl_expense_rate, buy_to_let, mo, property_price, rental_yield):
 
 
 @app.cell
-def _(down_payment, mo, property_price, renovation_cost, usd_holdings):
+def _(down_payment_pct, mo, property_price, renovation_cost, usd_holdings):
+    # Calculate down payment from percentage
+    down_payment_czk = property_price.value * down_payment_pct.value
+
     # Show funding warning if down payment exceeds USD holdings
     # Assume ~20.5 CZK/USD as approximate current rate
     fx_rate_approx = 20.5
     closing_costs_rate = 0.04
 
     initial_usd_czk = usd_holdings.value * fx_rate_approx
-    total_upfront = down_payment.value + (property_price.value * closing_costs_rate) + renovation_cost.value
+    total_upfront = down_payment_czk + (property_price.value * closing_costs_rate) + renovation_cost.value
     shortfall = total_upfront - initial_usd_czk
+
+    # Show calculated down payment
+    down_payment_display = mo.callout(
+        mo.md(f"**Down payment:** {down_payment_czk:,.0f} CZK ({down_payment_pct.value:.0%} of {property_price.value:,.0f} CZK)"),
+        kind="neutral"
+    )
 
     if shortfall > 0:
         funding_warning = mo.callout(
@@ -233,7 +243,7 @@ in stocks when renting, the comparison is asymmetric.
     else:
         funding_warning = mo.md("")  # Empty when no shortfall
 
-    funding_warning
+    mo.vstack([down_payment_display, funding_warning])
     return ()
 
 
@@ -325,9 +335,12 @@ def _(mo):
 
 
 @app.cell
-def _(btl_expense_rate, buy_to_let, district, down_payment, enable_correlations, enable_refinancing, enable_tax_benefits, fx_mixture_enabled, fx_stable_drift, fx_weak_dollar_drift, fx_weak_dollar_prob, inflation_adjust, mo, monthly_rent, np, property_price, renovation_cost, rent_inflation, rental_yield, run_button, usd_holdings, years):
+def _(btl_expense_rate, buy_to_let, district, down_payment_pct, enable_correlations, enable_refinancing, enable_tax_benefits, fx_mixture_enabled, fx_stable_drift, fx_weak_dollar_drift, fx_weak_dollar_prob, inflation_adjust, mo, monthly_rent, np, property_price, renovation_cost, rent_inflation, rental_yield, run_button, usd_holdings, years):
     # Only run when button is clicked
     mo.stop(not run_button.value)
+
+    # Calculate down payment from percentage
+    _down_payment = property_price.value * down_payment_pct.value
 
     # Import simulation (uses same run_simulation as core.runner)
     try:
@@ -335,7 +348,7 @@ def _(btl_expense_rate, buy_to_let, district, down_payment, enable_correlations,
 
         results = run_simulation(
             property_price=property_price.value,
-            down_payment=down_payment.value,
+            down_payment=_down_payment,
             usd_holdings=usd_holdings.value,
             monthly_rent=monthly_rent.value,
             years=years.value,
@@ -847,15 +860,18 @@ def _(mo):
 
 
 @app.cell
-def _(btl_expense_rate, buy_to_let, down_payment, fx_mixture_enabled, fx_stable_drift, fx_weak_dollar_drift, fx_weak_dollar_prob, mo, monthly_rent, np, property_price, renovation_cost, rent_inflation, rental_yield, sensitivity_button, usd_holdings, years):
+def _(btl_expense_rate, buy_to_let, down_payment_pct, fx_mixture_enabled, fx_stable_drift, fx_weak_dollar_drift, fx_weak_dollar_prob, mo, monthly_rent, np, property_price, renovation_cost, rent_inflation, rental_yield, sensitivity_button, usd_holdings, years):
     """One-at-a-time sensitivity analysis (tornado chart)"""
     mo.stop(not sensitivity_button.value, mo.md("*Click the button above to run sensitivity analysis*"))
 
     from models.simulation import run_simulation as _run_sim
 
+    # Calculate down payment from percentage
+    _down_payment = property_price.value * down_payment_pct.value
+
     _base_params = {
         "property_price": property_price.value,
-        "down_payment": down_payment.value,
+        "down_payment": _down_payment,
         "usd_holdings": usd_holdings.value,
         "monthly_rent": monthly_rent.value,
         "years": years.value,
@@ -875,9 +891,9 @@ def _(btl_expense_rate, buy_to_let, down_payment, fx_mixture_enabled, fx_stable_
     sensitivity_baseline_prob = _baseline["buy_wins_prob"]
     
     sensitivities = {}
+    # Note: Down payment % is not included since it now scales with property price
     _param_labels = {
         "property_price": "Property Price",
-        "down_payment": "Down Payment", 
         "usd_holdings": "USD Holdings",
         "monthly_rent": "Monthly Rent",
         "rent_growth_rate": "Rent Inflation",
