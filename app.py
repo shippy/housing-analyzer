@@ -891,12 +891,16 @@ def _(btl_expense_rate, buy_to_let, down_payment_pct, fx_mixture_enabled, fx_sta
     sensitivity_baseline_prob = _baseline["buy_wins_prob"]
     
     sensitivities = {}
-    # Note: Down payment % is not included since it now scales with property price
+    # Focus on parameters you can actually influence or key assumptions:
+    # - Property price: can look at cheaper/pricier properties
+    # - Monthly rent: actual rent you'd pay
+    # - Rent growth: key assumption about future rent inflation
+    # - Rental yield: key assumption for BTL mode
+    # NOT included: down_payment (now fixed %), usd_holdings (fixed constraint)
     _param_labels = {
         "property_price": "Property Price",
-        "usd_holdings": "USD Holdings",
-        "monthly_rent": "Monthly Rent",
-        "rent_growth_rate": "Rent Inflation",
+        "monthly_rent": "Your Rent",
+        "rent_growth_rate": "Rent Growth Assumption",
     }
     
     for _param, _label in _param_labels.items():
