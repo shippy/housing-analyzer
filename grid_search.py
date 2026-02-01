@@ -38,9 +38,17 @@ def run_grid_search(
     print(f"  FX: {fx_scenarios}")
     print(f"  Samples per scenario: {samples_per_scenario}")
     print()
+    print("Settings from .env:")
+    print(f"  Property: {base_config.property_price:,.0f} CZK")
+    print(f"  Down payment: {base_config.down_payment:,.0f} CZK")
+    print(f"  Buy-to-let: {base_config.buy_to_let}")
+    if base_config.buy_to_let:
+        net_yield = base_config.rental_yield * (1 - base_config.btl_expense_rate)
+        print(f"    Gross yield: {base_config.rental_yield:.1%}, Expenses: {base_config.btl_expense_rate:.0%}, Net yield: {net_yield:.1%}")
+    print()
 
     for i, (rent, years, fx) in enumerate(itertools.product(monthly_rents, years_range, fx_scenarios)):
-        # Build config
+        # Build config - inherit all settings from defaults (including buy_to_let, btl_expense_rate, etc.)
         config = ScenarioConfig(
             property_price=base_config.property_price,
             down_payment=base_config.down_payment,
@@ -49,6 +57,16 @@ def run_grid_search(
             years=years,
             rent_growth_rate=base_config.rent_growth_rate,
             district=base_config.district,
+            # Inherit BTL settings from defaults
+            buy_to_let=base_config.buy_to_let,
+            rental_yield=base_config.rental_yield,
+            btl_expense_rate=base_config.btl_expense_rate,
+            # Inherit model options
+            enable_refinancing=base_config.enable_refinancing,
+            enable_tax_benefits=base_config.enable_tax_benefits,
+            inflation_adjust=base_config.inflation_adjust,
+            enable_correlations=base_config.enable_correlations,
+            # Simulation
             n_samples=samples_per_scenario,
             seed=seed + i,  # Different seed for each scenario
         )
