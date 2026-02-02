@@ -15,15 +15,15 @@ from .currency import CurrencyModel, FXMixtureConfig
 # Based on historical price growth differentials
 DISTRICT_MULTIPLIERS = {
     "prague_avg": 1.0,
-    "prague_1": 0.95,   # Center - already expensive, slower growth
-    "prague_2": 1.05,   # Vinohrady - high demand
-    "prague_3": 1.08,   # Žižkov - gentrifying
-    "prague_4": 1.02,   # Nusle/Podolí - solid
-    "prague_5": 1.00,   # Smíchov - average
-    "prague_6": 0.98,   # Dejvice - established
-    "prague_7": 1.06,   # Holešovice - trendy
-    "prague_8": 1.04,   # Karlín - redeveloped
-    "prague_9": 1.10,   # Vysočany - catching up
+    "prague_1": 0.95,  # Center - already expensive, slower growth
+    "prague_2": 1.05,  # Vinohrady - high demand
+    "prague_3": 1.08,  # Žižkov - gentrifying
+    "prague_4": 1.02,  # Nusle/Podolí - solid
+    "prague_5": 1.00,  # Smíchov - average
+    "prague_6": 0.98,  # Dejvice - established
+    "prague_7": 1.06,  # Holešovice - trendy
+    "prague_8": 1.04,  # Karlín - redeveloped
+    "prague_9": 1.10,  # Vysočany - catching up
     "prague_10": 1.03,  # Vršovice - popular
 }
 
@@ -72,7 +72,7 @@ class _InternalSimConfig:
 
     # Inflation (AR(1) process with persistence)
     inflation_mean: float = 0.025  # 2.5% annual long-run mean
-    inflation_std: float = 0.015   # Innovation standard deviation
+    inflation_std: float = 0.015  # Innovation standard deviation
     inflation_persistence: float = 0.7  # AR(1) coefficient (0=iid, 1=random walk)
 
     # Location
@@ -84,44 +84,82 @@ def calculate_monthly_payment(principal: float, annual_rate: float, months: int)
     if annual_rate <= 0:
         return principal / months
     monthly_rate = annual_rate / 12
-    payment = principal * (monthly_rate * (1 + monthly_rate) ** months) / (
-        (1 + monthly_rate) ** months - 1
+    payment = (
+        principal
+        * (monthly_rate * (1 + monthly_rate) ** months)
+        / ((1 + monthly_rate) ** months - 1)
     )
     return payment
 
 
-def calculate_remaining_balance(principal: float, annual_rate: float, 
-                                total_months: int, months_paid: int) -> float:
+def calculate_remaining_balance(
+    principal: float, annual_rate: float, total_months: int, months_paid: int
+) -> float:
     """Calculate remaining mortgage balance after N months."""
     if months_paid >= total_months:
         return 0.0
     if annual_rate <= 0:
         return principal * (1 - months_paid / total_months)
-    
+
     monthly_rate = annual_rate / 12
     monthly_payment = calculate_monthly_payment(principal, annual_rate, total_months)
-    
+
     # Remaining balance formula
-    balance = principal * (1 + monthly_rate) ** months_paid - \
-              monthly_payment * ((1 + monthly_rate) ** months_paid - 1) / monthly_rate
+    balance = (
+        principal * (1 + monthly_rate) ** months_paid
+        - monthly_payment * ((1 + monthly_rate) ** months_paid - 1) / monthly_rate
+    )
     return max(0, balance)
 
 
-def calculate_interest_paid_year(principal: float, annual_rate: float,
-                                  total_months: int, year: int) -> float:
+def remaining_balance_after_months(
+    current_principal: float,
+    annual_rate: float,
+    remaining_term_months: int,
+    months_paid: int,
+) -> float:
+    """Calculate remaining balance after months_paid on the current loan state."""
+    if remaining_term_months <= 0:
+        return 0.0
+    months_paid = min(months_paid, remaining_term_months)
+    return calculate_remaining_balance(
+        current_principal,
+        annual_rate,
+        remaining_term_months,
+        months_paid,
+    )
+
+
+def compute_buy_cashflow_delta(
+    annual_mortgage: NDArray[np.float64] | float,
+    annual_property_costs: NDArray[np.float64] | float,
+    buy_to_let: bool,
+    annual_rental_income: NDArray[np.float64] | float,
+    own_rent: NDArray[np.float64] | float,
+) -> NDArray[np.float64] | float:
+    """Compute annual cashflow delta for buyer's invested cash."""
+    delta = -(annual_mortgage + annual_property_costs)
+    if buy_to_let:
+        delta = delta + annual_rental_income - own_rent
+    return delta
+
+
+def calculate_interest_paid_year(
+    principal: float, annual_rate: float, total_months: int, year: int
+) -> float:
     """Calculate interest paid in a specific year of the mortgage."""
     if annual_rate <= 0:
         return 0.0
-    
+
     monthly_rate = annual_rate / 12
     monthly_payment = calculate_monthly_payment(principal, annual_rate, total_months)
-    
+
     interest_paid = 0.0
     for month in range(year * 12, min((year + 1) * 12, total_months)):
         balance = calculate_remaining_balance(principal, annual_rate, total_months, month)
         interest_this_month = balance * monthly_rate
         interest_paid += interest_this_month
-    
+
     return interest_paid
 
 
@@ -143,12 +181,14 @@ _model_cache: dict[str, Any] = {}
 # Note: "FX" here is USD/CZK, so positive FX = stronger dollar.
 # A weak dollar (negative FX shock) combined with weak stocks (negative stock shock)
 # requires POSITIVE correlation to occur together.
-RISK_FACTOR_CORRELATION = np.array([
-    [1.00,  0.25, -0.15,  0.50],  # Property appreciation
-    [0.25,  1.00,  0.30, -0.25],  # Stock returns
-    [-0.15, 0.30,  1.00,  0.10],  # FX changes (USD/CZK)
-    [0.50, -0.25,  0.10,  1.00],  # Inflation
-])
+RISK_FACTOR_CORRELATION = np.array(
+    [
+        [1.00, 0.25, -0.15, 0.50],  # Property appreciation
+        [0.25, 1.00, 0.30, -0.25],  # Stock returns
+        [-0.15, 0.30, 1.00, 0.10],  # FX changes (USD/CZK)
+        [0.50, -0.25, 0.10, 1.00],  # Inflation
+    ]
+)
 
 
 def generate_correlated_shocks(
@@ -192,20 +232,22 @@ def get_fitted_models(
 ) -> tuple[AppreciationModel, MortgageModel, CurrencyModel]:
     """Get fitted PyMC models, using cache if available."""
     cache_key = f"models_{draws}_{tune}"
-    
+
     if use_cache and cache_key in _model_cache:
         return _model_cache[cache_key]
-    
+
     print("Fitting Bayesian models to historical data...")
-    
+
     try:
         from data.fetch import fetch_housing_prices, fetch_cnb_rates, fetch_fx_rates
-        
+
         hp_data = fetch_housing_prices()
         hpi_values = hp_data["hpi_index"].to_numpy()
         appreciation_model = fit_from_hpi_data(hpi_values)
-        print(f"  Appreciation: μ={appreciation_model.summary()['mu_mean']:.1%} ± {appreciation_model.summary()['mu_std']:.1%}")
-        
+        print(
+            f"  Appreciation: μ={appreciation_model.summary()['mu_mean']:.1%} ± {appreciation_model.summary()['mu_std']:.1%}"
+        )
+
         rates_data = fetch_cnb_rates()
         mortgage_rates = rates_data["mortgage_rate_pct"].to_numpy() / 100
         current_mortgage_rate = float(mortgage_rates[-1]) if len(mortgage_rates) > 0 else 0.055
@@ -215,8 +257,10 @@ def get_fitted_models(
             draws=draws,
             tune=tune,
         )
-        print(f"  Mortgage: θ={mortgage_model.summary()['theta_mean']:.1%}, current={current_mortgage_rate:.1%}")
-        
+        print(
+            f"  Mortgage: θ={mortgage_model.summary()['theta_mean']:.1%}, current={current_mortgage_rate:.1%}"
+        )
+
         fx_data = fetch_fx_rates()
         fx_rates = fx_data["usd_czk"].to_numpy()
         current_fx = float(fx_rates[-1]) if len(fx_rates) > 0 else 24.0
@@ -227,18 +271,18 @@ def get_fitted_models(
             tune=tune,
         )
         print(f"  FX: σ={currency_model.summary()['sigma_mean']:.1%}, current={current_fx:.1f}")
-        
+
     except Exception as e:
         print(f"  Warning: Could not fetch data ({e}), using priors only")
         appreciation_model = AppreciationModel(draws=draws, tune=tune)
         mortgage_model = MortgageModel(draws=draws, tune=tune)
         currency_model = CurrencyModel(draws=draws, tune=tune)
-    
+
     models = (appreciation_model, mortgage_model, currency_model)
-    
+
     if use_cache:
         _model_cache[cache_key] = models
-    
+
     return models
 
 
@@ -266,8 +310,7 @@ def sample_stock_returns(
         mu = pm.Normal("mu", mu=mean, sigma=0.02)
         sigma = pm.HalfNormal("sigma", sigma=std)
         trace = pm.sample(
-            draws=500, tune=500, chains=4, cores=1,
-            progressbar=False, target_accept=0.95
+            draws=500, tune=500, chains=4, cores=1, progressbar=False, target_accept=0.95
         )
 
     mu_samples = trace.posterior["mu"].values.flatten()
@@ -330,7 +373,7 @@ def run_simulation(
     """
     if seed is not None:
         np.random.seed(seed)
-    
+
     config = _InternalSimConfig(
         property_price=property_price,
         down_payment=down_payment,
@@ -339,17 +382,17 @@ def run_simulation(
         district=district,
         rent_growth_rate=rent_growth_rate,
     )
-    
+
     # Get district multiplier
     district_mult = DISTRICT_MULTIPLIERS.get(district, 1.0)
-    
+
     # Get fitted models
     appreciation_model, mortgage_model, currency_model = get_fitted_models(
         use_cache=use_cached_models,
         draws=pymc_draws,
         tune=pymc_tune,
     )
-    
+
     # Apply FX mixture config
     fx_mixture_config = FXMixtureConfig(
         enabled=fx_mixture_enabled,
@@ -358,18 +401,22 @@ def run_simulation(
         stable_drift=fx_stable_drift,
     )
     currency_model.mixture_config = fx_mixture_config
-    
+
     # Sample paths
     print(f"Sampling {n_samples} Monte Carlo paths...")
     if buy_to_let:
         gross_monthly = property_price * rental_yield / 12
         net_yield = rental_yield * (1 - btl_expense_rate)
         net_monthly = gross_monthly * (1 - btl_expense_rate)
-        print(f"  Buy-to-let: {rental_yield:.1%} gross, {net_yield:.1%} net (after {btl_expense_rate:.0%} expenses)")
+        print(
+            f"  Buy-to-let: {rental_yield:.1%} gross, {net_yield:.1%} net (after {btl_expense_rate:.0%} expenses)"
+        )
         print(f"    Net income: {net_monthly:,.0f} CZK/mo, you pay: {monthly_rent:,.0f} CZK/mo")
     if fx_mixture_enabled:
-        print(f"  FX mixture: {fx_weak_dollar_prob:.0%} weak (drift={fx_weak_dollar_drift:.1%}), "
-              f"{1-fx_weak_dollar_prob:.0%} stable (drift={fx_stable_drift:.1%})")
+        print(
+            f"  FX mixture: {fx_weak_dollar_prob:.0%} weak (drift={fx_weak_dollar_drift:.1%}), "
+            f"{1 - fx_weak_dollar_prob:.0%} stable (drift={fx_stable_drift:.1%})"
+        )
     if district != "prague_avg":
         print(f"  District: {district} (multiplier: {district_mult:.2f})")
     if not enable_correlations:
@@ -383,9 +430,9 @@ def run_simulation(
         # Independent shocks (no correlation structure)
         correlated_shocks = np.random.standard_normal((4, n_samples, years))
     property_shocks = correlated_shocks[0]  # (n_samples, years)
-    stock_shocks = correlated_shocks[1]     # (n_samples, years)
+    stock_shocks = correlated_shocks[1]  # (n_samples, years)
     # fx_shocks = correlated_shocks[2]      # Not used directly (model has own dynamics)
-    inflation_shocks = correlated_shocks[3] # (n_samples, years)
+    inflation_shocks = correlated_shocks[3]  # (n_samples, years)
 
     # Base appreciation adjusted by district
     # Scale the returns (not the factors) by district multiplier
@@ -409,9 +456,7 @@ def run_simulation(
     mortgage_rates = mortgage_model.sample_paths_annual(years, n_samples)
 
     # Use correlated shocks for stock returns
-    stock_cumulative = sample_stock_returns(
-        n_samples, years, correlated_shocks=stock_shocks
-    )
+    stock_cumulative = sample_stock_returns(n_samples, years, correlated_shocks=stock_shocks)
 
     # Sample inflation paths using AR(1) process with correlated shocks
     # AR(1): inflation_t = rho * inflation_{t-1} + (1-rho) * mu + sigma_innov * shock
@@ -433,7 +478,7 @@ def run_simulation(
     # Floor inflation at a reasonable minimum (deflation limit)
     inflation_annual = np.maximum(inflation_annual, -0.05)
     inflation_cumulative = np.cumprod(1 + inflation_annual, axis=1)
-    
+
     # ============================================================
     # INITIALIZE TRACKING ARRAYS
     # ============================================================
@@ -441,11 +486,11 @@ def run_simulation(
     buy_wealth_yearly = np.zeros((n_samples, years))
     rent_wealth_yearly = np.zeros((n_samples, years))
     remaining_balance_yearly = np.zeros((n_samples, years))  # For underwater calculation
-    
+
     # ============================================================
     # SCENARIO 1: BUY (with refinancing and tax benefits)
     # ============================================================
-    
+
     loan_amount = property_price - down_payment
     buying_costs = property_price * config.buying_costs_rate
     total_initial_buy = down_payment + buying_costs + renovation_cost
@@ -459,28 +504,29 @@ def run_simulation(
         print(f"      Model assumes additional CZK savings (not compared in rent scenario)")
 
     remaining_cash_buy = np.maximum(0, initial_usd_in_czk - total_initial_buy)
-    
+
     # Track mortgage state per sample
     current_principal = np.full(n_samples, loan_amount)
     current_rate = np.full(n_samples, config.initial_mortgage_rate)
-    months_into_mortgage = np.zeros(n_samples)
     remaining_term_months = np.full(n_samples, config.mortgage_term_years * 12)
-    
+
     # Track cumulative tax savings
     cumulative_tax_savings = np.zeros(n_samples)
-    
+
     # Property values over time
     property_values = property_price * property_appreciation
-    
+
     # Simulate year by year
     invested_cash = remaining_cash_buy.copy()
-    
+
     for y in range(years):
         # Monthly payment for this year
-        monthly_payment = np.array([
-            calculate_monthly_payment(p, r, int(m))
-            for p, r, m in zip(current_principal, current_rate, remaining_term_months)
-        ])
+        monthly_payment = np.array(
+            [
+                calculate_monthly_payment(p, r, int(m))
+                for p, r, m in zip(current_principal, current_rate, remaining_term_months)
+            ]
+        )
         annual_mortgage = monthly_payment * 12
 
         # Property costs
@@ -489,32 +535,42 @@ def run_simulation(
         ) * property_values[:, y]
 
         # Buy-to-let cash flow adjustment
-        # In owner-occupied mode: you pay mortgage+costs but save on rent (implicit)
-        # In buy-to-let mode: you pay mortgage+costs+your_rent but receive rental_income
-        # The NET difference vs owner-occupied = rental_income - your_rent
-        # (mortgage and property costs are same in both modes)
+        # Owner-occupied: pay mortgage + property costs
+        # Buy-to-let: pay mortgage + property costs + your rent, receive rental income
+        annual_rental_income = np.zeros(n_samples)
+        own_rent_this_year = np.zeros(n_samples)
         if buy_to_let:
             # Rental income from property (yield on current property value, minus landlord expenses)
             gross_rental_income = rental_yield * property_values[:, y]
             annual_rental_income = gross_rental_income * (1 - btl_expense_rate)
             # Your own rent (grows at rent_growth_rate)
-            own_rent_this_year = monthly_rent * 12 * (1 + config.rent_growth_rate) ** y
-            # Net difference vs owner-occupied: you get rental income but pay your own rent
-            btl_net_vs_owner_occupied = annual_rental_income - own_rent_this_year
-            # Add to invested cash (will grow with stocks)
-            invested_cash += btl_net_vs_owner_occupied
+            own_rent_this_year = np.full(
+                n_samples,
+                monthly_rent * 12 * (1 + config.rent_growth_rate) ** y,
+            )
+        invested_cash += compute_buy_cashflow_delta(
+            annual_mortgage=annual_mortgage,
+            annual_property_costs=annual_property_costs,
+            buy_to_let=buy_to_let,
+            annual_rental_income=annual_rental_income,
+            own_rent=own_rent_this_year,
+        )
 
         # Update mortgage state
         start_principal = current_principal.copy()  # Balance at start of year
-        months_into_mortgage += 12
-        remaining_term_months = np.maximum(0, remaining_term_months - 12)
+        months_paid_this_year = np.minimum(12, remaining_term_months)
 
         # Calculate remaining balance at end of year
-        remaining_balance = np.array([
-            calculate_remaining_balance(loan_amount, r, config.mortgage_term_years * 12, int(m))
-            for r, m in zip(current_rate, months_into_mortgage)
-        ])
+        remaining_balance = np.array(
+            [
+                remaining_balance_after_months(p, r, int(t), int(m))
+                for p, r, t, m in zip(
+                    current_principal, current_rate, remaining_term_months, months_paid_this_year
+                )
+            ]
+        )
         current_principal = remaining_balance
+        remaining_term_months = np.maximum(0, remaining_term_months - 12)
 
         # Interest paid this year (for tax deduction)
         # Interest = Total payments - Principal reduction
@@ -524,7 +580,9 @@ def run_simulation(
             interest_paid = annual_mortgage - principal_reduction
             # Ensure non-negative (can happen with rounding or paid-off mortgages)
             interest_paid = np.maximum(0, interest_paid)
-            deductible_interest = np.minimum(interest_paid, config.mortgage_interest_deduction_limit)
+            deductible_interest = np.minimum(
+                interest_paid, config.mortgage_interest_deduction_limit
+            )
             tax_savings = deductible_interest * config.income_tax_rate
             cumulative_tax_savings += tax_savings
         remaining_balance_yearly[:, y] = remaining_balance  # Track for underwater calculation
@@ -541,13 +599,13 @@ def run_simulation(
             remaining_term_months = np.where(
                 should_refinance,
                 (config.mortgage_term_years - y - 1) * 12,  # New term
-                remaining_term_months
+                remaining_term_months,
             )
             invested_cash -= refinance_cost  # Pay from savings
 
         # Invested cash grows
         if y > 0:
-            invested_cash *= (stock_cumulative[:, y] / stock_cumulative[:, y-1])
+            invested_cash *= stock_cumulative[:, y] / stock_cumulative[:, y - 1]
         else:
             invested_cash *= stock_cumulative[:, 0]
 
@@ -559,11 +617,11 @@ def run_simulation(
             capital_gain = np.maximum(0, property_values[:, y] - property_price - buying_costs)
             capital_gains_tax = capital_gain * config.capital_gains_tax_rate
         else:
-            capital_gains_tax = 0
+            capital_gains_tax = np.zeros(n_samples)
 
         equity = property_values[:, y] - remaining_balance - selling_costs - capital_gains_tax
         buy_wealth_yearly[:, y] = equity + invested_cash + cumulative_tax_savings
-    
+
     # ============================================================
     # SCENARIO 2: RENT + INVEST
     # ============================================================
@@ -578,17 +636,18 @@ def run_simulation(
     rent_comp_principal = np.full(n_samples, loan_amount)
     rent_comp_rate = np.full(n_samples, config.initial_mortgage_rate)
     rent_comp_term_months = np.full(n_samples, config.mortgage_term_years * 12)
-    rent_comp_months_paid = np.zeros(n_samples)
 
     for y in range(years):
         # Rent for this year (same for renter and buy-to-let buyer's own housing)
         rent_this_year = monthly_rent * 12 * (1 + config.rent_growth_rate) ** y
 
         # What would buyer pay THIS year (using same rate dynamics as buy scenario)
-        buyer_monthly_payment = np.array([
-            calculate_monthly_payment(p, r, int(m))
-            for p, r, m in zip(rent_comp_principal, rent_comp_rate, rent_comp_term_months)
-        ])
+        buyer_monthly_payment = np.array(
+            [
+                calculate_monthly_payment(p, r, int(m))
+                for p, r, m in zip(rent_comp_principal, rent_comp_rate, rent_comp_term_months)
+            ]
+        )
         buyer_annual_mortgage = buyer_monthly_payment * 12
 
         # Property costs buyer would pay (using simulated appreciation)
@@ -605,7 +664,7 @@ def run_simulation(
 
         # Compound existing savings using stock returns (correlated with other factors)
         if y > 0:
-            cumulative_savings *= (stock_cumulative[:, y] / stock_cumulative[:, y - 1])
+            cumulative_savings *= stock_cumulative[:, y] / stock_cumulative[:, y - 1]
         else:
             cumulative_savings *= stock_cumulative[:, 0]
         cumulative_savings += annual_savings
@@ -613,46 +672,52 @@ def run_simulation(
         rent_wealth_yearly[:, y] = usd_value_yearly[:, y] + cumulative_savings
 
         # Update buyer's mortgage state (same logic as buy scenario for fair comparison)
-        rent_comp_months_paid += 12
+        rent_months_paid_this_year = np.minimum(12, rent_comp_term_months)
+        rent_comp_principal = np.array(
+            [
+                remaining_balance_after_months(p, r, int(t), int(m))
+                for p, r, t, m in zip(
+                    rent_comp_principal,
+                    rent_comp_rate,
+                    rent_comp_term_months,
+                    rent_months_paid_this_year,
+                )
+            ]
+        )
         rent_comp_term_months = np.maximum(0, rent_comp_term_months - 12)
-
-        rent_comp_principal = np.array([
-            calculate_remaining_balance(loan_amount, r, config.mortgage_term_years * 12, int(m))
-            for r, m in zip(rent_comp_rate, rent_comp_months_paid)
-        ])
 
         # Apply same refinancing logic as buyer
         if enable_refinancing and (y + 1) % config.refinance_interval_years == 0:
             new_market_rate = mortgage_rates[:, y]
-            should_refinance = (new_market_rate < rent_comp_rate - 0.005) & (rent_comp_principal > 0)
+            should_refinance = (new_market_rate < rent_comp_rate - 0.005) & (
+                rent_comp_principal > 0
+            )
             rent_comp_rate = np.where(should_refinance, new_market_rate, rent_comp_rate)
             rent_comp_term_months = np.where(
-                should_refinance,
-                (config.mortgage_term_years - y - 1) * 12,
-                rent_comp_term_months
+                should_refinance, (config.mortgage_term_years - y - 1) * 12, rent_comp_term_months
             )
-    
+
     # ============================================================
     # INFLATION ADJUSTMENT
     # ============================================================
-    
+
     if inflation_adjust:
         buy_wealth_yearly_real = buy_wealth_yearly / inflation_cumulative
         rent_wealth_yearly_real = rent_wealth_yearly / inflation_cumulative
     else:
         buy_wealth_yearly_real = buy_wealth_yearly
         rent_wealth_yearly_real = rent_wealth_yearly
-    
+
     # Final wealth (nominal and real)
     buy_wealth = buy_wealth_yearly[:, -1]
     rent_wealth = rent_wealth_yearly[:, -1]
     buy_wealth_real = buy_wealth_yearly_real[:, -1]
     rent_wealth_real = rent_wealth_yearly_real[:, -1]
-    
+
     # ============================================================
     # ANALYSIS
     # ============================================================
-    
+
     def percentiles(arr: NDArray) -> dict[str, float]:
         return {
             "p5": float(np.percentile(arr, 5)),
@@ -663,33 +728,33 @@ def run_simulation(
             "mean": float(np.mean(arr)),
             "std": float(np.std(arr)),
         }
-    
+
     # Breakeven timeline: P(buy wins) at each year
     buy_wins_by_year = np.mean(buy_wealth_yearly_real > rent_wealth_yearly_real, axis=0)
-    
+
     # Final probabilities
     buy_wins_prob = float(np.mean(buy_wealth_real > rent_wealth_real))
-    
+
     # Downside risk metrics
     initial_capital = initial_usd_in_czk
-    
+
     # P(underwater): property value < remaining mortgage
     # Uses per-sample remaining balances that account for refinancing
     p_underwater_by_year = []
     for y in range(years):
         underwater = property_values[:, y] < remaining_balance_yearly[:, y]
         p_underwater_by_year.append(float(np.mean(underwater)))
-    
+
     # P(rent wealth < initial capital)
     p_rent_loss = float(np.mean(rent_wealth_real < initial_capital / inflation_cumulative[:, -1]))
     p_buy_loss = float(np.mean(buy_wealth_real < initial_capital / inflation_cumulative[:, -1]))
-    
+
     # Worst 5% scenarios
     buy_worst_5pct = float(np.percentile(buy_wealth_real, 5))
     rent_worst_5pct = float(np.percentile(rent_wealth_real, 5))
-    
+
     wealth_diff = buy_wealth_real - rent_wealth_real
-    
+
     summary_stats = {
         "buy": percentiles(buy_wealth),
         "rent": percentiles(rent_wealth),
@@ -700,7 +765,7 @@ def run_simulation(
         "expected_advantage_buy": float(np.mean(wealth_diff)),
         "median_advantage_buy": float(np.median(wealth_diff)),
     }
-    
+
     downside_metrics = {
         "p_underwater_final": p_underwater_by_year[-1] if p_underwater_by_year else 0,
         "p_underwater_by_year": p_underwater_by_year,
@@ -711,13 +776,13 @@ def run_simulation(
         "buy_var_95": float(initial_capital - np.percentile(buy_wealth_real, 5)),
         "rent_var_95": float(initial_capital - np.percentile(rent_wealth_real, 5)),
     }
-    
+
     model_summaries = {
         "appreciation": appreciation_model.summary(),
         "mortgage": mortgage_model.summary(),
         "currency": currency_model.summary(),
     }
-    
+
     return {
         "buy_wealth": buy_wealth,
         "rent_wealth": rent_wealth,
@@ -751,4 +816,5 @@ def print_summary(results: dict[str, Any]) -> None:
     Deprecated: Use core.runner.format_results() instead.
     """
     from core.runner import format_results
+
     print(format_results(results))

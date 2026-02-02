@@ -101,8 +101,17 @@ def add_common_args(parser: argparse.ArgumentParser) -> None:
         "--district",
         type=str,
         choices=[
-            "prague_avg", "prague_1", "prague_2", "prague_3", "prague_4",
-            "prague_5", "prague_6", "prague_7", "prague_8", "prague_9", "prague_10",
+            "prague_avg",
+            "prague_1",
+            "prague_2",
+            "prague_3",
+            "prague_4",
+            "prague_5",
+            "prague_6",
+            "prague_7",
+            "prague_8",
+            "prague_9",
+            "prague_10",
         ],
         help="Prague district for appreciation adjustment",
     )
@@ -215,8 +224,9 @@ def build_config_from_args(args: argparse.Namespace) -> ScenarioConfig:
     # Buy-to-let mode
     if args.buy_to_let:
         config.buy_to_let = True
-    config.rental_yield = args.rental_yield
-    config.btl_expense_rate = args.btl_expense_rate
+    if config.buy_to_let:
+        config.rental_yield = args.rental_yield
+        config.btl_expense_rate = args.btl_expense_rate
 
     # Simulation parameters
     config.n_samples = args.samples
@@ -282,7 +292,9 @@ def cmd_sweep(args: argparse.Namespace) -> int:
 
     quiet = args.output == "json"
     if not quiet:
-        print(f"Running sweep: {args.vary} from {args.sweep_from} to {args.sweep_to} (step {args.step})")
+        print(
+            f"Running sweep: {args.vary} from {args.sweep_from} to {args.sweep_to} (step {args.step})"
+        )
         print(f"Total scenarios: {len(values)}")
         print()
 
@@ -290,6 +302,7 @@ def cmd_sweep(args: argparse.Namespace) -> int:
 
     if args.output == "json":
         import json
+
         print(json.dumps(results, indent=2))
     else:
         print()
@@ -319,7 +332,9 @@ def main() -> int:
     )
 
     # Compare command
-    compare_parser = subparsers.add_parser("compare", help="Compare neutral vs bearish FX scenarios")
+    compare_parser = subparsers.add_parser(
+        "compare", help="Compare neutral vs bearish FX scenarios"
+    )
     add_common_args(compare_parser)
     compare_parser.add_argument(
         "--output",
