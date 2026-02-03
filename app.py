@@ -778,8 +778,8 @@ def _(mo, np, results):
 @app.cell
 def _(go, np, results):
     """Wealth component breakdown"""
-    _paths = results.get("paths", {})
     _stats = results["summary_stats"]
+    _components = results.get("components", {})
     
     # For buy scenario: property equity vs invested cash
     # For rent scenario: USD holdings vs accumulated savings
@@ -787,21 +787,11 @@ def _(go, np, results):
     _buy_median = _stats["buy"]["p50"]
     _rent_median = _stats["rent"]["p50"]
     
-    # Approximate component breakdown (median scenario)
-    # This is illustrative - actual would need tracking from simulation
-    _property_growth_median = np.median(_paths["property_appreciation"][:, -1])
-    _fx_median = np.median(_paths["fx_rates"][:, -1])
-    _stock_median = np.median(_paths["stock_cumulative"][:, -1])
-    
-    _config = results.get("config")
-    if _config:
-        _property_value_end = _config.property_price * _property_growth_median
-        _loan_remaining = _config.property_price - _config.down_payment  # simplified
-        _equity_approx = _property_value_end * 0.97 - _loan_remaining * 0.5  # rough estimate
-        _invested_cash_approx = _buy_median - _equity_approx
-        
-        _usd_value_end = _config.usd_holdings * _stock_median * _fx_median
-        _savings_approx = _rent_median - _usd_value_end
+    if _components:
+        _equity_approx = float(np.median(_components["equity_yearly"][:, -1]))
+        _invested_cash_approx = float(np.median(_components["invested_cash_yearly"][:, -1]))
+        _usd_value_end = float(np.median(_components["usd_value_yearly"][:, -1]))
+        _savings_approx = float(np.median(_components["savings_yearly"][:, -1]))
     else:
         _equity_approx = _buy_median * 0.7
         _invested_cash_approx = _buy_median * 0.3
