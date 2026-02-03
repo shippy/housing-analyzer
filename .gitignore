@@ -22,5 +22,8 @@ uv.lock
 # Marimo
 .marimo/
 
+# Worktrees
+.worktrees/
+
 # Environment variables (contains personal financial data)
 .env
