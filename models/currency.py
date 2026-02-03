@@ -24,6 +24,7 @@ class FXMixtureConfig:
                                   Lower values = more frequent regime switches.
         enabled: Whether to use mixture model (False = standard GBM from data).
     """
+
     weak_dollar_prob: float = 0.6
     weak_dollar_drift: float = -0.04
     stable_drift: float = 0.01
@@ -33,18 +34,18 @@ class FXMixtureConfig:
 
 class CurrencyModel:
     """Bayesian GBM model for USD/CZK exchange rate.
-    
+
     GBM model: dS = μS dt + σS dW
     - μ (mu): drift (expected annual return)
     - σ (sigma): volatility
-    
+
     For FX, drift is often close to zero (no arbitrage),
     but we estimate it from data.
-    
+
     Optionally supports a mixture model for incorporating views
     about dollar strength/weakness.
     """
-    
+
     def __init__(
         self,
         current_rate: float = 24.0,
@@ -52,17 +53,17 @@ class CurrencyModel:
         draws: int = 1000,
         tune: int = 500,
         mixture_config: FXMixtureConfig | None = None,
-        trading_days_per_year: int = 365,
+        trading_days_per_year: int = 252,
     ):
         """Initialize and fit the model.
-        
+
         Args:
             current_rate: Current USD/CZK rate.
             historical_rates: Array of historical daily rates for fitting.
             draws: Number of posterior draws.
             tune: Number of tuning steps.
             mixture_config: Optional config for regime mixture model.
-            trading_days_per_year: Trading days used for annualization (default 365 for FX).
+            trading_days_per_year: Trading days used for annualization (default 252).
         """
         self.current_rate = current_rate
         self.historical_rates = historical_rates
@@ -72,7 +73,7 @@ class CurrencyModel:
         self.mixture_config = mixture_config or FXMixtureConfig()
         self.trading_days_per_year = trading_days_per_year
         self._fit()
-    
+
     def _fit(self) -> None:
         """Fit the Bayesian GBM model."""
         with pm.Model() as model:
@@ -80,31 +81,31 @@ class CurrencyModel:
             # Drift: centered around 0 for FX (interest rate parity)
             # But CZK has been strengthening, so allow negative drift
             mu = pm.Normal("mu", mu=0.0, sigma=0.05)
-            
+
             # Volatility: FX typically 8-15% annual
             sigma = pm.HalfNormal("sigma", sigma=0.15)
-            
+
             if self.historical_rates is not None and len(self.historical_rates) > 100:
                 # Calculate log returns (daily)
                 log_returns = np.diff(np.log(self.historical_rates))
-                
+
                 # Remove any NaN or inf
                 log_returns = log_returns[np.isfinite(log_returns)]
-                
+
                 if len(log_returns) > 50:
                     # Annualize: daily returns, based on trading days per year
                     # Daily drift = annual_mu / trading_days
                     # Daily vol = annual_sigma / sqrt(trading_days)
                     daily_mu = mu / self.trading_days_per_year
                     daily_sigma = sigma / np.sqrt(self.trading_days_per_year)
-                    
+
                     obs = pm.Normal(
                         "log_returns",
                         mu=daily_mu,
                         sigma=daily_sigma,
                         observed=log_returns,
                     )
-            
+
             self.trace = pm.sample(
                 draws=self.draws,
                 tune=self.tune,
@@ -113,13 +114,13 @@ class CurrencyModel:
                 progressbar=False,
                 return_inferencedata=True,
             )
-        
+
         self.model = model
-        
+
         # Extract posterior samples
         self.mu_samples = self.trace.posterior["mu"].values.flatten()
         self.sigma_samples = self.trace.posterior["sigma"].values.flatten()
-    
+
     def sample_paths(
         self,
         years: int,
@@ -127,19 +128,19 @@ class CurrencyModel:
         dt: float | None = None,
     ) -> NDArray[np.float64]:
         """Sample future exchange rate paths from posterior predictive.
-        
+
         Args:
             years: Number of years to simulate.
             n_samples: Number of paths.
             dt: Time step (default daily = 1/trading_days_per_year).
-            
+
         Returns:
             Array of shape (n_samples, n_steps) with simulated rates.
         """
         if dt is None:
             dt = 1 / self.trading_days_per_year
         n_steps = int(years / dt)
-        
+
         # Sample volatility from posterior
         idx = np.random.choice(len(self.sigma_samples), size=n_samples)
         sigmas = self.sigma_samples[idx]
@@ -193,14 +194,14 @@ class CurrencyModel:
                 rates[:, t + 1] = rates[:, t] * np.exp(drift + diffusion)
 
         return rates[:, 1:]
-    
+
     def sample_paths_annual(self, years: int, n_samples: int) -> NDArray[np.float64]:
         """Sample year-end exchange rates.
-        
+
         Args:
             years: Number of years.
             n_samples: Number of paths.
-            
+
         Returns:
             Array of shape (n_samples, years) with year-end rates.
         """
@@ -209,18 +210,26 @@ class CurrencyModel:
         step = self.trading_days_per_year
         indices = np.arange(step, daily.shape[1] + 1, step) - 1
         indices = indices[:years]
-        
+
         if len(indices) < years:
             # Pad with last value
-            annual = daily[:, indices] if len(indices) > 0 else np.full((n_samples, years), self.current_rate)
+            annual = (
+                daily[:, indices]
+                if len(indices) > 0
+                else np.full((n_samples, years), self.current_rate)
+            )
             if annual.shape[1] < years:
-                pad_val = annual[:, -1:] if annual.shape[1] > 0 else np.full((n_samples, 1), self.current_rate)
+                pad_val = (
+                    annual[:, -1:]
+                    if annual.shape[1] > 0
+                    else np.full((n_samples, 1), self.current_rate)
+                )
                 pad = np.tile(pad_val, (1, years - annual.shape[1]))
                 annual = np.hstack([annual, pad])
             return annual
-        
+
         return daily[:, indices]
-    
+
     def summary(self) -> dict:
         """Return summary statistics of the fitted model."""
         result = {
@@ -239,12 +248,14 @@ class CurrencyModel:
             "current_rate": self.current_rate,
             "mixture_enabled": self.mixture_config.enabled,
         }
-        
+
         if self.mixture_config.enabled:
-            result.update({
-                "weak_dollar_prob": self.mixture_config.weak_dollar_prob,
-                "weak_dollar_drift": self.mixture_config.weak_dollar_drift,
-                "stable_drift": self.mixture_config.stable_drift,
-            })
-        
+            result.update(
+                {
+                    "weak_dollar_prob": self.mixture_config.weak_dollar_prob,
+                    "weak_dollar_drift": self.mixture_config.weak_dollar_drift,
+                    "stable_drift": self.mixture_config.stable_drift,
+                }
+            )
+
         return result

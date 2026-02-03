@@ -32,3 +32,10 @@ def test_fx_annualization_uses_trading_days():
     model_252 = CurrencyModel(current_rate=21.0, historical_rates=rates, trading_days_per_year=252)
     model_365 = CurrencyModel(current_rate=21.0, historical_rates=rates, trading_days_per_year=365)
     assert model_252.summary()["sigma_mean"] != model_365.summary()["sigma_mean"]
+
+
+def test_fx_default_trading_days_is_252():
+    from models.currency import CurrencyModel
+
+    model = CurrencyModel(current_rate=21.0, historical_rates=np.linspace(20.0, 21.0, 260))
+    assert model.trading_days_per_year == 252
