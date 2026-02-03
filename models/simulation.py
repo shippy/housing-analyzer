@@ -138,10 +138,11 @@ def compute_buy_cashflow_delta(
     own_rent: NDArray[np.float64] | float,
 ) -> NDArray[np.float64] | float:
     """Compute annual cashflow delta for buyer's invested cash."""
-    delta = -(annual_mortgage + annual_property_costs)
-    if buy_to_let:
-        delta = delta + annual_rental_income - own_rent
-    return delta
+    # Owner-occupied baseline: mortgage/property costs are already reflected in equity,
+    # so we only apply the incremental buy-to-let net cashflow.
+    if not buy_to_let:
+        return 0.0
+    return annual_rental_income - own_rent
 
 
 def calculate_interest_paid_year(
@@ -486,6 +487,8 @@ def run_simulation(
     buy_wealth_yearly = np.zeros((n_samples, years))
     rent_wealth_yearly = np.zeros((n_samples, years))
     remaining_balance_yearly = np.zeros((n_samples, years))  # For underwater calculation
+    equity_yearly = np.zeros((n_samples, years))
+    invested_cash_yearly = np.zeros((n_samples, years))
 
     # ============================================================
     # SCENARIO 1: BUY (with refinancing and tax benefits)
@@ -621,6 +624,8 @@ def run_simulation(
 
         equity = property_values[:, y] - remaining_balance - selling_costs - capital_gains_tax
         buy_wealth_yearly[:, y] = equity + invested_cash + cumulative_tax_savings
+        equity_yearly[:, y] = equity
+        invested_cash_yearly[:, y] = invested_cash
 
     # ============================================================
     # SCENARIO 2: RENT + INVEST
@@ -631,6 +636,7 @@ def run_simulation(
 
     # Savings accumulation - renter saves difference between buyer's costs and rent
     cumulative_savings = np.zeros(n_samples)
+    savings_yearly = np.zeros((n_samples, years))
 
     # Track buyer's mortgage state for fair comparison (same as buy scenario)
     rent_comp_principal = np.full(n_samples, loan_amount)
@@ -670,6 +676,7 @@ def run_simulation(
         cumulative_savings += annual_savings
 
         rent_wealth_yearly[:, y] = usd_value_yearly[:, y] + cumulative_savings
+        savings_yearly[:, y] = cumulative_savings
 
         # Update buyer's mortgage state (same logic as buy scenario for fair comparison)
         rent_months_paid_this_year = np.minimum(12, rent_comp_term_months)
@@ -806,6 +813,12 @@ def run_simulation(
             "stock_cumulative": stock_cumulative,
             "mortgage_rates": mortgage_rates,
             "inflation_cumulative": inflation_cumulative,
+        },
+        "components": {
+            "equity_yearly": equity_yearly,
+            "invested_cash_yearly": invested_cash_yearly,
+            "usd_value_yearly": usd_value_yearly,
+            "savings_yearly": savings_yearly,
         },
     }
 

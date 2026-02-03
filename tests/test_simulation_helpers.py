@@ -15,7 +15,7 @@ def test_buy_cashflow_owner_occupied() -> None:
         own_rent=0.0,
     )
 
-    assert np.isclose(delta, -150.0)
+    assert np.isclose(delta, 0.0)
 
 
 def test_buy_cashflow_buy_to_let() -> None:
@@ -30,7 +30,7 @@ def test_buy_cashflow_buy_to_let() -> None:
         own_rent=50.0,
     )
 
-    assert np.isclose(delta, -160.0)
+    assert np.isclose(delta, -10.0)
 
 
 def test_remaining_balance_uses_current_state() -> None:
@@ -56,3 +56,18 @@ def test_remaining_balance_uses_current_state() -> None:
     )
 
     assert np.isclose(actual, expected)
+
+
+def test_simulation_returns_components() -> None:
+    results = simulation.run_simulation(
+        property_price=5_000_000,
+        down_payment=1_000_000,
+        usd_holdings=100_000,
+        monthly_rent=20_000,
+        years=2,
+        n_samples=10,
+        seed=1,
+        use_cached_models=True,
+    )
+    assert "components" in results
+    assert "equity_yearly" in results["components"]
