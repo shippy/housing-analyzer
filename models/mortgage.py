@@ -8,6 +8,8 @@ import numpy as np
 import pymc as pm
 from numpy.typing import NDArray
 
+from core.time_grid import aggregate_to_annual
+
 
 class MortgageModel:
     """Bayesian Vasicek model for Czech mortgage rates.
@@ -130,18 +132,8 @@ class MortgageModel:
         Returns:
             Array of shape (n_samples, years) with annual average rates.
         """
-        monthly = self.sample_paths(years, n_samples, dt=1/12)
-        # Reshape to (n_samples, years, 12) and take mean over months
-        n_months = monthly.shape[1]
-        n_full_years = n_months // 12
-        trimmed = monthly[:, :n_full_years * 12]
-        annual = trimmed.reshape(n_samples, n_full_years, 12).mean(axis=2)
-        
-        # Pad if needed
-        if annual.shape[1] < years:
-            pad = np.tile(annual[:, -1:], (1, years - annual.shape[1]))
-            annual = np.hstack([annual, pad])
-        
+        monthly = self.sample_paths(years, n_samples, dt=1 / 12)
+        annual = np.array([aggregate_to_annual(row) for row in monthly])
         return annual[:, :years]
     
     def summary(self) -> dict:
