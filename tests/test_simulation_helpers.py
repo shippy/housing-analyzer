@@ -15,7 +15,7 @@ def test_buy_cashflow_owner_occupied() -> None:
         own_rent=0.0,
     )
 
-    assert np.isclose(delta, -150.0)
+    assert np.isclose(delta, 0.0)
 
 
 def test_buy_cashflow_buy_to_let() -> None:
@@ -30,7 +30,7 @@ def test_buy_cashflow_buy_to_let() -> None:
         own_rent=50.0,
     )
 
-    assert np.isclose(delta, -160.0)
+    assert np.isclose(delta, -10.0)
 
 
 def test_remaining_balance_uses_current_state() -> None:

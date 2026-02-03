@@ -138,10 +138,11 @@ def compute_buy_cashflow_delta(
     own_rent: NDArray[np.float64] | float,
 ) -> NDArray[np.float64] | float:
     """Compute annual cashflow delta for buyer's invested cash."""
-    delta = -(annual_mortgage + annual_property_costs)
-    if buy_to_let:
-        delta = delta + annual_rental_income - own_rent
-    return delta
+    # Owner-occupied baseline: mortgage/property costs are already reflected in equity,
+    # so we only apply the incremental buy-to-let net cashflow.
+    if not buy_to_let:
+        return 0.0
+    return annual_rental_income - own_rent
 
 
 def calculate_interest_paid_year(
