@@ -27,3 +27,6 @@ uv.lock
 
 # Environment variables (contains personal financial data)
 .env
+grid_search_results.png
+tradeoff_analysis.png
+grid_search_results.json
