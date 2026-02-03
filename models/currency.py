@@ -52,6 +52,7 @@ class CurrencyModel:
         draws: int = 1000,
         tune: int = 500,
         mixture_config: FXMixtureConfig | None = None,
+        trading_days_per_year: int = 365,
     ):
         """Initialize and fit the model.
         
@@ -61,6 +62,7 @@ class CurrencyModel:
             draws: Number of posterior draws.
             tune: Number of tuning steps.
             mixture_config: Optional config for regime mixture model.
+            trading_days_per_year: Trading days used for annualization (default 365 for FX).
         """
         self.current_rate = current_rate
         self.historical_rates = historical_rates
@@ -68,6 +70,7 @@ class CurrencyModel:
         self.tune = tune
         self.trace = None
         self.mixture_config = mixture_config or FXMixtureConfig()
+        self.trading_days_per_year = trading_days_per_year
         self._fit()
     
     def _fit(self) -> None:
@@ -89,11 +92,11 @@ class CurrencyModel:
                 log_returns = log_returns[np.isfinite(log_returns)]
                 
                 if len(log_returns) > 50:
-                    # Annualize: daily returns, ~252 trading days
-                    # Daily drift = annual_mu / 252
-                    # Daily vol = annual_sigma / sqrt(252)
-                    daily_mu = mu / 252
-                    daily_sigma = sigma / np.sqrt(252)
+                    # Annualize: daily returns, based on trading days per year
+                    # Daily drift = annual_mu / trading_days
+                    # Daily vol = annual_sigma / sqrt(trading_days)
+                    daily_mu = mu / self.trading_days_per_year
+                    daily_sigma = sigma / np.sqrt(self.trading_days_per_year)
                     
                     obs = pm.Normal(
                         "log_returns",
@@ -121,18 +124,20 @@ class CurrencyModel:
         self,
         years: int,
         n_samples: int,
-        dt: float = 1/252,
+        dt: float | None = None,
     ) -> NDArray[np.float64]:
         """Sample future exchange rate paths from posterior predictive.
         
         Args:
             years: Number of years to simulate.
             n_samples: Number of paths.
-            dt: Time step (default daily = 1/252).
+            dt: Time step (default daily = 1/trading_days_per_year).
             
         Returns:
             Array of shape (n_samples, n_steps) with simulated rates.
         """
+        if dt is None:
+            dt = 1 / self.trading_days_per_year
         n_steps = int(years / dt)
         
         # Sample volatility from posterior
@@ -199,9 +204,10 @@ class CurrencyModel:
         Returns:
             Array of shape (n_samples, years) with year-end rates.
         """
-        daily = self.sample_paths(years, n_samples, dt=1/252)
-        # Take every 252nd value (year-end)
-        indices = np.arange(252, daily.shape[1] + 1, 252) - 1
+        daily = self.sample_paths(years, n_samples)
+        # Take every trading_days_per_year value (year-end)
+        step = self.trading_days_per_year
+        indices = np.arange(step, daily.shape[1] + 1, step) - 1
         indices = indices[:years]
         
         if len(indices) < years:

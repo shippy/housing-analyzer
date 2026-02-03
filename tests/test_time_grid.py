@@ -23,3 +23,12 @@ def test_mortgage_annual_includes_partial_year(monkeypatch):
     annual = model.sample_paths_annual(years=2, n_samples=1)
     assert annual.shape == (1, 2)
     assert np.allclose(annual[0], np.array([6.5, 13.5]))
+
+
+def test_fx_annualization_uses_trading_days():
+    from models.currency import CurrencyModel
+
+    rates = np.linspace(20.0, 21.0, 260)
+    model_252 = CurrencyModel(current_rate=21.0, historical_rates=rates, trading_days_per_year=252)
+    model_365 = CurrencyModel(current_rate=21.0, historical_rates=rates, trading_days_per_year=365)
+    assert model_252.summary()["sigma_mean"] != model_365.summary()["sigma_mean"]
