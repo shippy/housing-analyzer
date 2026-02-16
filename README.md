@@ -37,14 +37,14 @@ Create a `.env` file with your personal scenario. All values have sensible defau
 
 ```bash
 # Property you're considering (CZK)
-PROPERTY_PRICE=25000000
-DOWN_PAYMENT=5000000
+PROPERTY_PRICE=15000000
+DOWN_PAYMENT=3000000
 
 # Your current rent as a tenant (CZK/month)
-MONTHLY_RENT=28000
+MONTHLY_RENT=25000
 
 # Your USD savings that would be liquidated for down payment
-USD_HOLDINGS=200000
+USD_HOLDINGS=100000
 
 # Analysis horizon
 YEARS=10
@@ -54,10 +54,10 @@ RENT_INFLATION=0.03
 
 # Prague district (affects appreciation rate)
 # Options: prague_avg, prague_1 through prague_10
-DISTRICT=prague_2
+DISTRICT=prague_avg
 
 # Buy-to-let mode: buy property, rent it out, live in cheaper rental
-BUY_TO_LET=true
+BUY_TO_LET=false
 RENTAL_YIELD=0.025        # Gross annual yield (2.5%)
 BTL_EXPENSE_RATE=0.30     # Landlord expenses: vacancy, maintenance, tax (30%)
 
