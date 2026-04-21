@@ -20,6 +20,7 @@ app = modal.App("housing-analyzer")
 image = (
     modal.Image.debian_slim(python_version="3.12")
     .pip_install("uv")
+    .add_local_file("deploy.toml", "/root/deploy.toml", copy=True)
     .add_local_dir(".", "/root/project", copy=True, ignore=[".venv", ".git", "__pycache__", ".github", "node_modules"])
     .run_commands("cd /root/project && uv sync --no-dev")
 )
