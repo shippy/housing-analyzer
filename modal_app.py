@@ -32,7 +32,9 @@ image = (
     memory=limits.get("memory", 512),
     timeout=limits.get("timeout", 300),
     scaledown_window=limits.get("idle_timeout", 300),
+    max_containers=1,
 )
+@modal.concurrent(max_inputs=100)
 @modal.web_server(8080)
 def serve():
     import subprocess
