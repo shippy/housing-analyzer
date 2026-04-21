@@ -1,0 +1,10 @@
+[deploy]
+platform = "modal"
+mode = "serve"
+entrypoint = "app.py"
+
+[deploy.limits]
+cpu = 2
+memory = 512
+timeout = 300
+idle_timeout = 300
