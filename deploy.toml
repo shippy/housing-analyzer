@@ -7,4 +7,4 @@ entrypoint = "app.py"
 cpu = 2
 memory = 512
 timeout = 3600
-idle_timeout = 300
+idle_timeout = 600
