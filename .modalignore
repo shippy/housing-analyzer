@@ -4,3 +4,5 @@ __pycache__
 *.pyc
 .github
 node_modules
+.env
+.env.*
